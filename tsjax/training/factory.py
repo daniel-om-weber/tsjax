@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from functools import partial
 
-import jax.numpy as jnp
 from flax import nnx
 
 from tsjax.data import GrainPipeline
 from tsjax.losses import normalized_mae, normalized_mse
 from tsjax.losses.classification import cross_entropy_loss
-from tsjax.models import MLP, RNN, RNNEncoder
+from tsjax.models import MLP, RNN, Denormalize, Normalize, NormalizedModel, RNNEncoder
 
 from .learner import Learner
 
@@ -21,24 +20,25 @@ def create_rnn(
     hidden_size: int = 100,
     num_layers: int = 1,
     seed: int = 0,
-) -> RNN:
+) -> NormalizedModel:
     """Create RNN model with norm stats inferred from pipeline."""
     u_stats = pipeline.stats[pipeline.input_keys[0]]
     y_stats = pipeline.stats[pipeline.target_keys[0]]
     input_size = len(u_stats.mean)
     output_size = len(y_stats.mean)
 
-    return RNN(
+    rnn = RNN(
         input_size=input_size,
         output_size=output_size,
         hidden_size=hidden_size,
         num_layers=num_layers,
         rnn_type=rnn_type,
-        u_mean=jnp.asarray(u_stats.mean),
-        u_std=jnp.asarray(u_stats.std),
-        y_mean=jnp.asarray(y_stats.mean),
-        y_std=jnp.asarray(y_stats.std),
         rngs=nnx.Rngs(seed),
+    )
+    return NormalizedModel(
+        rnn,
+        norm_in=Normalize(input_size, u_stats.mean, u_stats.std),
+        norm_out=Denormalize(output_size, y_stats.mean, y_stats.std),
     )
 
 
@@ -102,15 +102,18 @@ def ClassifierLearner(
     u_stats = pipeline.stats[pipeline.input_keys[0]]
     input_size = len(u_stats.mean)
 
-    model = RNNEncoder(
+    encoder = RNNEncoder(
         input_size=input_size,
         output_size=n_classes,
         hidden_size=hidden_size,
         num_layers=num_layers,
         rnn_type=rnn_type,
-        u_mean=jnp.asarray(u_stats.mean),
-        u_std=jnp.asarray(u_stats.std),
         rngs=nnx.Rngs(seed),
+    )
+    model = NormalizedModel(
+        encoder,
+        norm_in=Normalize(input_size, u_stats.mean, u_stats.std),
+        norm_out=Denormalize(n_classes),  # identity — logits pass through
     )
     return Learner(
         model,
@@ -133,7 +136,10 @@ def _regression_show_results(*, target, pred, n, figsize, batch, source, pipelin
 
     target_key = pipeline.target_keys[0]
     return plot_regression_scatter(
-        target, pred, n=n, figsize=figsize,
+        target,
+        pred,
+        n=n,
+        figsize=figsize,
         y_labels=source.readers[target_key].signals,
     )
 
@@ -151,15 +157,16 @@ def RegressionLearner(
     input_size = len(u_stats.mean)
     output_size = len(y_stats.mean)
 
-    model = MLP(
+    mlp = MLP(
         input_size=input_size,
         output_size=output_size,
         hidden_sizes=hidden_sizes,
-        u_mean=jnp.asarray(u_stats.mean),
-        u_std=jnp.asarray(u_stats.std),
-        y_mean=jnp.asarray(y_stats.mean),
-        y_std=jnp.asarray(y_stats.std),
         rngs=nnx.Rngs(seed),
+    )
+    model = NormalizedModel(
+        mlp,
+        norm_in=Normalize(input_size, u_stats.mean, u_stats.std),
+        norm_out=Denormalize(output_size, y_stats.mean, y_stats.std),
     )
     return Learner(
         model,

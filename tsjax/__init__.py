@@ -31,6 +31,9 @@ from .losses import rmse as rmse
 from .models import GRU as GRU
 from .models import MLP as MLP
 from .models import RNN as RNN
+from .models import Denormalize as Denormalize
+from .models import Normalize as Normalize
+from .models import NormalizedModel as NormalizedModel
 from .models import RNNEncoder as RNNEncoder
 from .training import ClassifierLearner as ClassifierLearner
 from .training import GRULearner as GRULearner

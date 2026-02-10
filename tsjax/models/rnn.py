@@ -1,17 +1,15 @@
-"""RNN model with internal normalization using Flax NNX."""
+"""RNN model using Flax NNX."""
 
 from __future__ import annotations
 
-import jax.numpy as jnp
 from flax import nnx
-
-from tsjax._core import Buffer
 
 
 class RNN(nnx.Module):
-    """Multi-layer RNN with internal input normalization and output denormalization.
+    """Multi-layer RNN (normalized-space in, normalized-space out).
 
-    Raw physical values in, raw physical values out.
+    Wrap with :class:`NormalizedModel` or ``nnx.Sequential(Normalize, RNN, Denormalize)``
+    to handle raw physical values.
     """
 
     def __init__(
@@ -21,19 +19,9 @@ class RNN(nnx.Module):
         hidden_size: int = 100,
         num_layers: int = 1,
         rnn_type: str = "gru",
-        u_mean: jnp.ndarray | None = None,
-        u_std: jnp.ndarray | None = None,
-        y_mean: jnp.ndarray | None = None,
-        y_std: jnp.ndarray | None = None,
         *,
         rngs: nnx.Rngs,
     ):
-        # Store norm stats as Buffer (excluded from gradients)
-        self.u_mean = Buffer(jnp.zeros(input_size) if u_mean is None else jnp.asarray(u_mean))
-        self.u_std = Buffer(jnp.ones(input_size) if u_std is None else jnp.asarray(u_std))
-        self.y_mean = Buffer(jnp.zeros(output_size) if y_mean is None else jnp.asarray(y_mean))
-        self.y_std = Buffer(jnp.ones(output_size) if y_std is None else jnp.asarray(y_std))
-
         # Select cell type
         match rnn_type.lower():
             case "gru":
@@ -55,23 +43,15 @@ class RNN(nnx.Module):
         self.linear = nnx.Linear(in_features=hidden_size, out_features=output_size, rngs=rngs)
 
     def __call__(self, u):
-        """Forward pass: raw input -> raw output.
+        """Forward pass: normalized input -> normalized output.
 
-        u: (batch, seq_len, input_size) — raw physical values
-        returns: (batch, seq_len, output_size) — raw physical values
+        u: (batch, seq_len, input_size)
+        returns: (batch, seq_len, output_size)
         """
-        # Normalize input
-        x = (u - self.u_mean[...]) / self.u_std[...]
-
-        # Multi-layer RNN
+        x = u
         for rnn in self.rnn_layers:
             x = rnn(x)
-
-        # Project to output size
-        x = self.linear(x)
-
-        # Denormalize output
-        return x * self.y_std[...] + self.y_mean[...]
+        return self.linear(x)
 
 
 GRU = RNN

@@ -174,4 +174,7 @@ def test_regression_learner_model_is_mlp(regression_dataset):
         bs=2,
     )
     lrn = RegressionLearner(pipeline, hidden_sizes=[8])
-    assert isinstance(lrn.model, MLP)
+    from tsjax import NormalizedModel
+
+    assert isinstance(lrn.model, NormalizedModel)
+    assert isinstance(lrn.model.model, MLP)
