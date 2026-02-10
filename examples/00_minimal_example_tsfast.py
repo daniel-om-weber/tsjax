@@ -5,7 +5,8 @@
 
 # %%
 from pathlib import Path
-from tsfast.basics import *
+
+from tsfast.basics import RNNLearner, create_dls
 
 # %%
 _root = Path(__file__).resolve().parent.parent

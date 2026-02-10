@@ -5,11 +5,12 @@
 
 # %%
 from pathlib import Path
-from tsjax import create_grain_dls, RNNLearner, rmse
+
+from tsjax import RNNLearner, create_simulation_dls, rmse
 
 # %%
 _root = Path(__file__).resolve().parent.parent
-pipeline = create_grain_dls(
+pipeline = create_simulation_dls(
     u=['u'], y=['y'],
     dataset=_root / 'test_data/WienerHammerstein',
     bs=16, win_sz=500, stp_sz=10,

@@ -11,7 +11,13 @@ import pytest
 
 from tsjax.data.hdf5_store import HDF5Store, read_hdf5_attr
 from tsjax.data.resample import ResampledStore, resample_fft, resample_interp
-from tsjax.data.sources import FullSequenceSource, WindowedSource
+from tsjax.data.sources import (
+    ComposedSource,
+    FullSeqReader,
+    WindowedReader,
+    _FileIndex,
+    _WindowIndex,
+)
 from tsjax.data.stats import compute_norm_stats_from_index
 
 DATASET = Path(__file__).parent.parent / "test_data" / "WienerHammerstein"
@@ -166,28 +172,33 @@ class TestResampledStore:
         assert result.shape == (10, 1)
 
     def test_with_windowed_source(self, train_store):
-        """WindowedSource should work transparently with ResampledStore."""
+        """ComposedSource with _WindowIndex should work with ResampledStore."""
         factor = 0.5
         rs = ResampledStore(train_store, factor=factor)
         win_sz = 20
         stp_sz = 10
-        ws = WindowedSource(rs, win_sz, stp_sz, ["u"], ["y"])
+
+        index = _WindowIndex(rs, win_sz, stp_sz, ref_signal="u")
+        readers = {"u": WindowedReader(rs, ["u"]), "y": WindowedReader(rs, ["y"])}
+        source = ComposedSource(index, readers)
 
         # Verify window count uses resampled lengths
         path = rs.paths[0]
         resampled_len = rs.get_seq_len(path)
         expected_n_win = max(0, (resampled_len - win_sz) // stp_sz + 1)
-        assert len(ws) == expected_n_win
+        assert len(source) == expected_n_win
 
         # First item should have correct shape
-        item = ws[0]
+        item = source[0]
         assert item["u"].shape == (win_sz, 1)
         assert item["y"].shape == (win_sz, 1)
 
     def test_with_full_sequence_source(self, train_store):
         rs = ResampledStore(train_store, factor=0.5)
-        fs = FullSequenceSource(rs, ["u"], ["y"])
-        item = fs[0]
+        index = _FileIndex(list(rs.paths))
+        readers = {"u": FullSeqReader(rs, ["u"]), "y": FullSeqReader(rs, ["y"])}
+        source = ComposedSource(index, readers)
+        item = source[0]
         expected_len = rs.get_seq_len(rs.paths[0])
         assert item["u"].shape == (expected_len, 1)
         assert item["y"].shape == (expected_len, 1)
@@ -225,19 +236,19 @@ class TestComputeNormStatsFromIndex:
         from tsjax.data.stats import compute_norm_stats
 
         files = [str(p) for p in TRAIN_DIR.rglob("*") if p.suffix in {".hdf5", ".h5"}]
-        orig_mean, orig_std = compute_norm_stats(sorted(files), ["u"])
-        idx_mean, idx_std = compute_norm_stats_from_index(train_store, ["u"])
+        orig = compute_norm_stats(sorted(files), ["u"])
+        idx = compute_norm_stats_from_index(train_store, ["u"])
 
-        np.testing.assert_allclose(idx_mean, orig_mean, atol=1e-5)
-        np.testing.assert_allclose(idx_std, orig_std, atol=1e-5)
+        np.testing.assert_allclose(idx.mean, orig.mean, atol=1e-5)
+        np.testing.assert_allclose(idx.std, orig.std, atol=1e-5)
 
     def test_with_resampled_store(self, train_store):
         """Stats from a ResampledStore should return valid arrays."""
         rs = ResampledStore(train_store, factor=0.5)
-        mean, std = compute_norm_stats_from_index(rs, ["u"])
-        assert mean.shape == (1,)
-        assert std.shape == (1,)
-        assert np.all(std > 0)
+        ns = compute_norm_stats_from_index(rs, ["u"])
+        assert ns.mean.shape == (1,)
+        assert ns.std.shape == (1,)
+        assert np.all(ns.std > 0)
 
 
 # ---------------------------------------------------------------------------
@@ -247,9 +258,9 @@ class TestComputeNormStatsFromIndex:
 
 class TestPipelineResampling:
     def test_create_grain_dls_with_factor(self):
-        from tsjax.data.pipeline import create_grain_dls
+        from tsjax.data.pipeline import create_simulation_dls
 
-        pl = create_grain_dls(
+        pl = create_simulation_dls(
             u=["u"],
             y=["y"],
             dataset=DATASET,

@@ -68,3 +68,110 @@ def test_n_skip(pipeline):
     lrn = RNNLearner(pipeline, rnn_type="gru", hidden_size=8, n_skip=5, seed=42)
     lrn.fit(n_epoch=1, lr=1e-3, progress=False)
     assert lrn.train_losses[0] > 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — ClassifierLearner and RegressionLearner factories
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def classification_dataset(tmp_path_factory):
+    """Dataset with integer class label HDF5 attributes for classification."""
+    import h5py
+    import numpy as np
+
+    tmp = tmp_path_factory.mktemp("cls_data")
+    rng = np.random.default_rng(42)
+    for split in ("train", "valid", "test"):
+        d = tmp / split
+        d.mkdir()
+        for i in range(6):
+            with h5py.File(str(d / f"f{i}.hdf5"), "w") as f:
+                f.create_dataset("sensor", data=rng.standard_normal(100).astype(np.float32))
+                f.attrs["fault_class"] = float(rng.integers(0, 3))
+    return tmp
+
+
+@pytest.fixture(scope="module")
+def regression_dataset(tmp_path_factory):
+    """Dataset with scalar HDF5 attributes for tabular regression."""
+    import h5py
+    import numpy as np
+
+    tmp = tmp_path_factory.mktemp("reg_data")
+    rng = np.random.default_rng(42)
+    for split in ("train", "valid", "test"):
+        d = tmp / split
+        d.mkdir()
+        for i in range(6):
+            with h5py.File(str(d / f"f{i}.hdf5"), "w") as f:
+                f.attrs["mass"] = float(rng.standard_normal())
+                f.attrs["stiffness"] = float(rng.standard_normal())
+                f.attrs["freq"] = float(rng.standard_normal())
+    return tmp
+
+
+def test_classifier_learner_trains(classification_dataset):
+    """ClassifierLearner should train for 1 epoch without error."""
+    from tsjax import ClassifierLearner, ScalarAttr, create_grain_dls
+
+    pipeline = create_grain_dls(
+        inputs={"u": ["sensor"]},
+        targets={"y": ScalarAttr(["fault_class"])},
+        dataset=classification_dataset,
+        win_sz=20,
+        stp_sz=20,
+        bs=2,
+    )
+    lrn = ClassifierLearner(pipeline, n_classes=3, hidden_size=8, seed=42)
+    lrn.fit(n_epoch=1, lr=1e-3, progress=False)
+    assert len(lrn.train_losses) == 1
+    assert lrn.train_losses[0] > 0
+
+
+def test_classifier_learner_loss_is_cross_entropy(classification_dataset):
+    """ClassifierLearner should use cross_entropy_loss."""
+    from tsjax import ClassifierLearner, ScalarAttr, create_grain_dls
+    from tsjax.losses.classification import cross_entropy_loss
+
+    pipeline = create_grain_dls(
+        inputs={"u": ["sensor"]},
+        targets={"y": ScalarAttr(["fault_class"])},
+        dataset=classification_dataset,
+        win_sz=20,
+        stp_sz=20,
+        bs=2,
+    )
+    lrn = ClassifierLearner(pipeline, n_classes=3, hidden_size=8)
+    assert lrn.loss_func is cross_entropy_loss
+
+
+def test_regression_learner_trains(regression_dataset):
+    """RegressionLearner should train for 1 epoch without error."""
+    from tsjax import RegressionLearner, ScalarAttr, create_grain_dls
+
+    pipeline = create_grain_dls(
+        inputs={"u": ScalarAttr(["mass", "stiffness"])},
+        targets={"y": ScalarAttr(["freq"])},
+        dataset=regression_dataset,
+        bs=2,
+    )
+    lrn = RegressionLearner(pipeline, hidden_sizes=[8, 4], seed=42)
+    lrn.fit(n_epoch=1, lr=1e-3, progress=False)
+    assert len(lrn.train_losses) == 1
+    assert lrn.train_losses[0] > 0
+
+
+def test_regression_learner_model_is_mlp(regression_dataset):
+    """RegressionLearner should use MLP model."""
+    from tsjax import MLP, RegressionLearner, ScalarAttr, create_grain_dls
+
+    pipeline = create_grain_dls(
+        inputs={"u": ScalarAttr(["mass", "stiffness"])},
+        targets={"y": ScalarAttr(["freq"])},
+        dataset=regression_dataset,
+        bs=2,
+    )
+    lrn = RegressionLearner(pipeline, hidden_sizes=[8])
+    assert isinstance(lrn.model, MLP)

@@ -1,5 +1,9 @@
 """Shared fixtures for tsjax integration tests."""
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 from pathlib import Path
 
 import pytest
@@ -20,9 +24,9 @@ def dataset_path():
 @pytest.fixture(scope="session")
 def pipeline():
     """Session-scoped pipeline — expensive to create, shared across all tests."""
-    from tsjax import create_grain_dls
+    from tsjax import create_simulation_dls
 
-    return create_grain_dls(
+    return create_simulation_dls(
         u=U_SIGNALS,
         y=Y_SIGNALS,
         dataset=DATASET,

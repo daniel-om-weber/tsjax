@@ -1,4 +1,4 @@
-"""RNN model with internal normalization using Flax NNX."""
+"""RNN encoder with last-hidden-state pooling and internal normalization using Flax NNX."""
 
 from __future__ import annotations
 
@@ -8,10 +8,12 @@ from flax import nnx
 from tsjax._core import Buffer
 
 
-class RNN(nnx.Module):
-    """Multi-layer RNN with internal input normalization and output denormalization.
+class RNNEncoder(nnx.Module):
+    """RNN encoder + last-hidden-state pooling + linear head.
 
-    Raw physical values in, raw physical values out.
+    Input normalization + optional output denormalization (identity by default).
+    When y_mean/y_std are left as defaults, output is raw (suitable for logits).
+    When y_mean/y_std are provided, output is denormalized to physical units.
     """
 
     def __init__(
@@ -28,10 +30,14 @@ class RNN(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        # Store norm stats as Buffer (excluded from gradients)
+        # Store input norm stats as Buffer (excluded from gradients)
         self.u_mean = Buffer(jnp.zeros(input_size) if u_mean is None else jnp.asarray(u_mean))
         self.u_std = Buffer(jnp.ones(input_size) if u_std is None else jnp.asarray(u_std))
-        self.y_mean = Buffer(jnp.zeros(output_size) if y_mean is None else jnp.asarray(y_mean))
+
+        # Store output norm stats as Buffer (identity = no denorm by default)
+        self.y_mean = Buffer(
+            jnp.zeros(output_size) if y_mean is None else jnp.asarray(y_mean)
+        )
         self.y_std = Buffer(jnp.ones(output_size) if y_std is None else jnp.asarray(y_std))
 
         # Select cell type
@@ -51,14 +57,14 @@ class RNN(nnx.Module):
             layers.append(nnx.RNN(cell))
         self.rnn_layers = nnx.List(layers)
 
-        # Output projection
+        # Output head
         self.linear = nnx.Linear(in_features=hidden_size, out_features=output_size, rngs=rngs)
 
     def __call__(self, u):
-        """Forward pass: raw input -> raw output.
+        """Forward pass: raw input -> output (denormalized if y stats provided).
 
         u: (batch, seq_len, input_size) — raw physical values
-        returns: (batch, seq_len, output_size) — raw physical values
+        returns: (batch, output_size)
         """
         # Normalize input
         x = (u - self.u_mean[...]) / self.u_std[...]
@@ -67,11 +73,11 @@ class RNN(nnx.Module):
         for rnn in self.rnn_layers:
             x = rnn(x)
 
+        # Pool: last hidden state
+        x = x[:, -1, :]
+
         # Project to output size
         x = self.linear(x)
 
         # Denormalize output
         return x * self.y_std[...] + self.y_mean[...]
-
-
-GRU = RNN

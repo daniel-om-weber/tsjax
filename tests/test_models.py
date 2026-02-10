@@ -79,3 +79,183 @@ def test_invalid_rnn_type():
 
     with pytest.raises(ValueError, match="Unknown rnn_type"):
         RNN(input_size=1, output_size=1, hidden_size=8, rnn_type="transformer", rngs=nnx.Rngs(0))
+
+
+# ---------------------------------------------------------------------------
+# RNNEncoder tests (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def test_encoder_gru_output_shape():
+    """GRU encoder should produce (batch, output_size)."""
+    from tsjax import RNNEncoder
+
+    model = RNNEncoder(
+        input_size=1, output_size=5, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0)
+    )
+    x = jnp.ones((2, 10, 1))
+    out = model(x)
+    assert out.shape == (2, 5)
+
+
+def test_encoder_lstm_output_shape():
+    """LSTM encoder should produce (batch, output_size)."""
+    from tsjax import RNNEncoder
+
+    model = RNNEncoder(
+        input_size=3, output_size=7, hidden_size=16, rnn_type="lstm", rngs=nnx.Rngs(0)
+    )
+    x = jnp.ones((4, 20, 3))
+    out = model(x)
+    assert out.shape == (4, 7)
+
+
+def test_encoder_multilayer():
+    """Multi-layer encoder should produce correct shape."""
+    from tsjax import RNNEncoder
+
+    model = RNNEncoder(
+        input_size=2, output_size=3, hidden_size=8, num_layers=2, rnn_type="gru", rngs=nnx.Rngs(0)
+    )
+    x = jnp.ones((2, 15, 2))
+    out = model(x)
+    assert out.shape == (2, 3)
+
+
+def test_encoder_output_is_finite():
+    """Encoder output should be finite for reasonable input."""
+    from tsjax import RNNEncoder
+
+    model = RNNEncoder(
+        input_size=1, output_size=4, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0)
+    )
+    x = jnp.ones((2, 20, 1)) * 0.5
+    out = model(x)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_encoder_with_input_norm_stats():
+    """Encoder with input norm stats should apply input normalization."""
+    from tsjax import RNNEncoder
+
+    u_mean, u_std = np.array([1.0, 2.0]), np.array([3.0, 4.0])
+    model = RNNEncoder(
+        input_size=2,
+        output_size=3,
+        hidden_size=8,
+        rnn_type="gru",
+        u_mean=u_mean,
+        u_std=u_std,
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((2, 10, 2))
+    out = model(x)
+    assert out.shape == (2, 3)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_encoder_output_denormalization():
+    """Encoder with y stats should denormalize output (not raw logits)."""
+    from tsjax import RNNEncoder
+
+    y_mean, y_std = np.array([10.0]), np.array([5.0])
+    model_denorm = RNNEncoder(
+        input_size=1, output_size=1, hidden_size=8, rnn_type="gru",
+        y_mean=y_mean, y_std=y_std, rngs=nnx.Rngs(0),
+    )
+    model_raw = RNNEncoder(
+        input_size=1, output_size=1, hidden_size=8, rnn_type="gru",
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((2, 10, 1))
+    out_denorm = model_denorm(x)
+    out_raw = model_raw(x)
+    # Different seeds/params so values differ, but denorm model should not equal raw model
+    # More precisely: with same weights, denorm = raw * y_std + y_mean
+    # Since they have different random weights, just check shapes and finiteness
+    assert out_denorm.shape == (2, 1)
+    assert jnp.all(jnp.isfinite(out_denorm))
+    # Verify denorm is actually applied: manually check with identity weights is complex,
+    # so instead verify that a model with non-trivial y stats produces different output
+    # than identity stats would (statistically near-certain with random weights)
+    assert not jnp.allclose(out_denorm, out_raw, atol=1e-3)
+
+
+def test_encoder_invalid_rnn_type():
+    """Unknown rnn_type should raise ValueError."""
+    import pytest
+
+    from tsjax import RNNEncoder
+
+    with pytest.raises(ValueError, match="Unknown rnn_type"):
+        RNNEncoder(
+            input_size=1, output_size=2, hidden_size=8, rnn_type="transformer", rngs=nnx.Rngs(0)
+        )
+
+
+# ---------------------------------------------------------------------------
+# MLP tests (Phase 5)
+# ---------------------------------------------------------------------------
+
+
+def test_mlp_output_shape():
+    """MLP should produce (batch, output_size)."""
+    from tsjax import MLP
+
+    model = MLP(input_size=3, output_size=2, hidden_sizes=[8, 4], rngs=nnx.Rngs(0))
+    x = jnp.ones((4, 3))
+    out = model(x)
+    assert out.shape == (4, 2)
+
+
+def test_mlp_default_hidden_sizes():
+    """MLP with default hidden sizes should work."""
+    from tsjax import MLP
+
+    model = MLP(input_size=5, output_size=1, rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 5))
+    out = model(x)
+    assert out.shape == (2, 1)
+
+
+def test_mlp_output_is_finite():
+    """MLP output should be finite for reasonable input."""
+    from tsjax import MLP
+
+    model = MLP(input_size=3, output_size=2, hidden_sizes=[16], rngs=nnx.Rngs(0))
+    x = jnp.ones((4, 3)) * 0.5
+    out = model(x)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_mlp_with_norm_stats():
+    """MLP with norm stats should apply normalization/denormalization."""
+    from tsjax import MLP
+
+    u_mean, u_std = np.array([1.0, 2.0]), np.array([3.0, 4.0])
+    y_mean, y_std = np.array([5.0]), np.array([6.0])
+
+    model = MLP(
+        input_size=2,
+        output_size=1,
+        hidden_sizes=[8],
+        u_mean=u_mean,
+        u_std=u_std,
+        y_mean=y_mean,
+        y_std=y_std,
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((2, 2))
+    out = model(x)
+    assert out.shape == (2, 1)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_mlp_single_hidden():
+    """MLP with a single hidden layer should produce correct shape."""
+    from tsjax import MLP
+
+    model = MLP(input_size=4, output_size=3, hidden_sizes=[16], rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 4))
+    out = model(x)
+    assert out.shape == (2, 3)

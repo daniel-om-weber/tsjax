@@ -8,8 +8,9 @@ import jax.numpy as jnp
 from flax import nnx
 
 from tsjax.data import GrainPipeline
-from tsjax.losses import normalized_mae
-from tsjax.models import RNN
+from tsjax.losses import normalized_mae, normalized_mse
+from tsjax.losses.classification import cross_entropy_loss
+from tsjax.models import MLP, RNN, RNNEncoder
 
 from .learner import Learner
 
@@ -22,8 +23,10 @@ def create_rnn(
     seed: int = 0,
 ) -> RNN:
     """Create RNN model with norm stats inferred from pipeline."""
-    input_size = len(pipeline.u_mean)
-    output_size = len(pipeline.y_mean)
+    u_stats = pipeline.stats[pipeline.input_keys[0]]
+    y_stats = pipeline.stats[pipeline.target_keys[0]]
+    input_size = len(u_stats.mean)
+    output_size = len(y_stats.mean)
 
     return RNN(
         input_size=input_size,
@@ -31,10 +34,10 @@ def create_rnn(
         hidden_size=hidden_size,
         num_layers=num_layers,
         rnn_type=rnn_type,
-        u_mean=jnp.asarray(pipeline.u_mean),
-        u_std=jnp.asarray(pipeline.u_std),
-        y_mean=jnp.asarray(pipeline.y_mean),
-        y_std=jnp.asarray(pipeline.y_std),
+        u_mean=jnp.asarray(u_stats.mean),
+        u_std=jnp.asarray(u_stats.std),
+        y_mean=jnp.asarray(y_stats.mean),
+        y_std=jnp.asarray(y_stats.std),
         rngs=nnx.Rngs(seed),
     )
 
@@ -58,3 +61,111 @@ def RNNLearner(
 
 create_gru = partial(create_rnn, rnn_type="gru")
 GRULearner = partial(RNNLearner, rnn_type="gru")
+
+
+# ---------------------------------------------------------------------------
+# Classification factory
+# ---------------------------------------------------------------------------
+
+
+def _classifier_show_batch(batch, *, n, figsize, source, pipeline):
+    from tsjax.viz import plot_scalar_batch
+
+    input_key = pipeline.input_keys[0]
+    target_key = pipeline.target_keys[0]
+    return plot_scalar_batch(
+        batch,
+        n=n,
+        figsize=figsize,
+        u_labels=source.readers[input_key].signals,
+        y_labels=source.readers[target_key].signals,
+    )
+
+
+def _classifier_show_results(*, target, pred, n, figsize, batch, source, pipeline):
+    from tsjax.viz import plot_classification_results
+
+    return plot_classification_results(target, pred, n=n, figsize=figsize)
+
+
+def ClassifierLearner(
+    pipeline: GrainPipeline,
+    n_classes: int,
+    rnn_type: str = "gru",
+    hidden_size: int = 100,
+    num_layers: int = 1,
+    n_skip: int = 0,
+    seed: int = 0,
+    metrics: list = [],
+) -> Learner:
+    """Create Learner with RNNEncoder model + cross-entropy loss."""
+    u_stats = pipeline.stats[pipeline.input_keys[0]]
+    input_size = len(u_stats.mean)
+
+    model = RNNEncoder(
+        input_size=input_size,
+        output_size=n_classes,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        rnn_type=rnn_type,
+        u_mean=jnp.asarray(u_stats.mean),
+        u_std=jnp.asarray(u_stats.std),
+        rngs=nnx.Rngs(seed),
+    )
+    return Learner(
+        model,
+        pipeline,
+        loss_func=cross_entropy_loss,
+        n_skip=n_skip,
+        metrics=metrics,
+        plot_batch_fn=_classifier_show_batch,
+        plot_results_fn=_classifier_show_results,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression (MLP) factory
+# ---------------------------------------------------------------------------
+
+
+def _regression_show_results(*, target, pred, n, figsize, batch, source, pipeline):
+    from tsjax.viz import plot_regression_scatter
+
+    target_key = pipeline.target_keys[0]
+    return plot_regression_scatter(
+        target, pred, n=n, figsize=figsize,
+        y_labels=source.readers[target_key].signals,
+    )
+
+
+def RegressionLearner(
+    pipeline: GrainPipeline,
+    hidden_sizes: list[int] | None = None,
+    loss_func=normalized_mse,
+    seed: int = 0,
+    metrics: list = [],
+) -> Learner:
+    """Create Learner with MLP model for scalar regression."""
+    u_stats = pipeline.stats[pipeline.input_keys[0]]
+    y_stats = pipeline.stats[pipeline.target_keys[0]]
+    input_size = len(u_stats.mean)
+    output_size = len(y_stats.mean)
+
+    model = MLP(
+        input_size=input_size,
+        output_size=output_size,
+        hidden_sizes=hidden_sizes,
+        u_mean=jnp.asarray(u_stats.mean),
+        u_std=jnp.asarray(u_stats.std),
+        y_mean=jnp.asarray(y_stats.mean),
+        y_std=jnp.asarray(y_stats.std),
+        rngs=nnx.Rngs(seed),
+    )
+    return Learner(
+        model,
+        pipeline,
+        loss_func=loss_func,
+        n_skip=0,
+        metrics=metrics,
+        plot_results_fn=_regression_show_results,
+    )

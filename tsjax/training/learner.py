@@ -5,34 +5,117 @@ from __future__ import annotations
 import time
 
 import jax.numpy as jnp
+import numpy as np
 import optax
 from flax import nnx
 from tqdm import tqdm
 
 from tsjax.data import GrainPipeline
 from tsjax.losses import normalized_mae
-from tsjax.models import RNN
 
 
 class Learner:
-    """Wraps an RNN model and pipeline with fastai-style fit methods."""
+    """Wraps a model and pipeline with fastai-style fit methods."""
 
     def __init__(
         self,
-        model: RNN,
+        model: nnx.Module,
         pipeline: GrainPipeline,
         loss_func=normalized_mae,
         n_skip: int = 0,
         metrics: list = [],
+        plot_batch_fn=None,
+        plot_results_fn=None,
     ):
         self.model = model
         self.pipeline = pipeline
         self.loss_func = loss_func
         self.n_skip = n_skip
         self.metrics = metrics
+        self.plot_batch_fn = plot_batch_fn
+        self.plot_results_fn = plot_results_fn
         self.train_losses: list[float] = []
         self.valid_losses: list[float] = []
         self.valid_metrics: dict[str, list[float]] = {m.__name__: [] for m in metrics}
+
+    def _get_ds_and_source(self, split: str):
+        """Return (dataset, source) for the given split name."""
+        match split:
+            case "train":
+                return self.pipeline.train, self.pipeline.train_source
+            case "valid":
+                return self.pipeline.valid, self.pipeline.valid_source
+            case "test":
+                return self.pipeline.test, self.pipeline.test_source
+            case _:
+                raise ValueError(f"Unknown split: {split!r}. Use 'train', 'valid', or 'test'.")
+
+    def show_batch(self, n: int = 4, split: str = "valid", figsize=None):
+        """Plot input/output signals from a batch.
+
+        Parameters
+        ----------
+        n : Number of samples to display.
+        split : One of "train", "valid", "test".
+        figsize : Matplotlib figure size override.
+        """
+        ds, source = self._get_ds_and_source(split)
+        batch = ds[0]
+
+        if self.plot_batch_fn is not None:
+            return self.plot_batch_fn(
+                batch, n=n, figsize=figsize, source=source, pipeline=self.pipeline
+            )
+
+        from tsjax.viz import plot_batch
+
+        input_key = self.pipeline.input_keys[0]
+        target_key = self.pipeline.target_keys[0]
+        return plot_batch(
+            batch,
+            n=n,
+            figsize=figsize,
+            u_labels=source.readers[input_key].signals,
+            y_labels=source.readers[target_key].signals,
+        )
+
+    def show_results(self, n: int = 4, split: str = "valid", figsize=None):
+        """Plot model predictions vs actual outputs.
+
+        Parameters
+        ----------
+        n : Number of samples to display.
+        split : One of "train", "valid", "test".
+        figsize : Matplotlib figure size override.
+        """
+        ds, source = self._get_ds_and_source(split)
+        batch = ds[0]
+        target_key = self.pipeline.target_keys[0]
+        inputs = {k: jnp.asarray(batch[k]) for k in self.pipeline.input_keys}
+        pred = np.asarray(self.model(**inputs))
+        y = np.asarray(batch[target_key])
+        if self.n_skip > 0:
+            pred = pred[:, self.n_skip :]
+            y = y[:, self.n_skip :]
+
+        if self.plot_results_fn is not None:
+            return self.plot_results_fn(
+                target=y, pred=pred, n=n, figsize=figsize,
+                batch=batch, source=source, pipeline=self.pipeline,
+            )
+
+        from tsjax.viz import plot_results
+
+        input_key = self.pipeline.input_keys[0]
+        return plot_results(
+            target=y,
+            pred=pred,
+            n=n,
+            figsize=figsize,
+            u=np.asarray(batch[input_key]),
+            y_labels=source.readers[target_key].signals,
+            u_labels=source.readers[input_key].signals,
+        )
 
     def fit(self, n_epoch: int, lr: float = 3e-3, progress: bool = True):
         """Train with constant LR."""
@@ -60,8 +143,11 @@ class Learner:
 
     def _fit(self, n_epoch: int, tx, progress: bool = True):
         """Internal training loop."""
-        y_mean = jnp.asarray(self.pipeline.y_mean)
-        y_std = jnp.asarray(self.pipeline.y_std)
+        target_key = self.pipeline.target_keys[0]
+        target_stats = self.pipeline.stats[target_key]
+        y_mean = jnp.asarray(target_stats.mean)
+        y_std = jnp.asarray(target_stats.std)
+        input_keys = self.pipeline.input_keys
         n_skip = self.n_skip
         loss_func = self.loss_func
         metric_fns = list(self.metrics)
@@ -69,22 +155,22 @@ class Learner:
 
         optimizer = nnx.Optimizer(model, tx, wrt=nnx.Param)
 
-        def loss_fn(model, u, y):
-            pred = model(u)
+        def loss_fn(model, inputs, y):
+            pred = model(**inputs)
             if n_skip > 0:
                 pred = pred[:, n_skip:]
                 y = y[:, n_skip:]
             return loss_func(pred, y, y_mean, y_std)
 
         @nnx.jit
-        def train_step(model, optimizer, u, y):
-            loss, grads = nnx.value_and_grad(loss_fn)(model, u, y)
+        def train_step(model, optimizer, inputs, y):
+            loss, grads = nnx.value_and_grad(loss_fn)(model, inputs, y)
             optimizer.update(model, grads)
             return loss
 
         @nnx.jit
-        def eval_step(model, u, y):
-            pred = model(u)
+        def eval_step(model, inputs, y):
+            pred = model(**inputs)
             if n_skip > 0:
                 pred = pred[:, n_skip:]
                 y = y[:, n_skip:]
@@ -109,9 +195,9 @@ class Learner:
                     mininterval=1.0,
                 )
             for batch in batch_iter:
-                u = jnp.asarray(batch["u"])
-                y = jnp.asarray(batch["y"])
-                loss = train_step(model, optimizer, u, y)
+                inputs = {k: jnp.asarray(batch[k]) for k in input_keys}
+                y = jnp.asarray(batch[target_key])
+                loss = train_step(model, optimizer, inputs, y)
                 epoch_loss += float(loss)
                 n_batches += 1
                 if progress:
@@ -125,9 +211,9 @@ class Learner:
             metric_sums = [0.0] * len(metric_fns)
             n_val = 0
             for batch in self.pipeline.valid:
-                u = jnp.asarray(batch["u"])
-                y = jnp.asarray(batch["y"])
-                loss, mvals = eval_step(model, u, y)
+                inputs = {k: jnp.asarray(batch[k]) for k in input_keys}
+                y = jnp.asarray(batch[target_key])
+                loss, mvals = eval_step(model, inputs, y)
                 val_loss += float(loss)
                 for i, v in enumerate(mvals):
                     metric_sums[i] += float(v)

@@ -1,7 +1,10 @@
 """Integration tests for the data pipeline: stats, HDF5 reading, windowing, batching."""
 
+from functools import partial
+
 import h5py
 import numpy as np
+import pytest
 
 
 def test_norm_stats_shape_and_finite(dataset_path):
@@ -9,12 +12,12 @@ def test_norm_stats_shape_and_finite(dataset_path):
     from tsjax import compute_norm_stats
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    mean, std = compute_norm_stats(train_files, ["u"])
-    assert mean.shape == (1,)
-    assert std.shape == (1,)
-    assert mean.dtype == np.float32
-    assert np.all(np.isfinite(mean))
-    assert np.all(std > 0)
+    ns = compute_norm_stats(train_files, ["u"])
+    assert ns.mean.shape == (1,)
+    assert ns.std.shape == (1,)
+    assert ns.mean.dtype == np.float32
+    assert np.all(np.isfinite(ns.mean))
+    assert np.all(ns.std > 0)
 
 
 def test_norm_stats_match_manual_computation(dataset_path):
@@ -22,7 +25,7 @@ def test_norm_stats_match_manual_computation(dataset_path):
     from tsjax import compute_norm_stats
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    mean, std = compute_norm_stats(train_files, ["u"])
+    ns = compute_norm_stats(train_files, ["u"])
 
     # Manual computation
     all_data = []
@@ -33,8 +36,8 @@ def test_norm_stats_match_manual_computation(dataset_path):
     expected_mean = np.mean(data).astype(np.float32)
     expected_std = np.std(data).astype(np.float32)
 
-    np.testing.assert_allclose(mean[0], expected_mean, atol=1e-5)
-    np.testing.assert_allclose(std[0], expected_std, atol=1e-5)
+    np.testing.assert_allclose(ns.mean[0], expected_mean, atol=1e-5)
+    np.testing.assert_allclose(ns.std[0], expected_std, atol=1e-5)
 
 
 def test_hdf5_store_reads_match_h5py(dataset_path):
@@ -61,12 +64,18 @@ def test_pipeline_train_batch_shapes(pipeline):
 
 def test_pipeline_has_norm_stats(pipeline):
     """Pipeline should expose finite norm stats with correct length."""
-    assert len(pipeline.u_mean) == 1
-    assert len(pipeline.u_std) == 1
-    assert len(pipeline.y_mean) == 1
-    assert len(pipeline.y_std) == 1
-    assert np.all(np.isfinite(pipeline.u_mean))
-    assert np.all(pipeline.u_std > 0)
+    assert len(pipeline.stats["u"].mean) == 1
+    assert len(pipeline.stats["u"].std) == 1
+    assert len(pipeline.stats["y"].mean) == 1
+    assert len(pipeline.stats["y"].std) == 1
+    assert np.all(np.isfinite(pipeline.stats["u"].mean))
+    assert np.all(pipeline.stats["u"].std > 0)
+
+
+def test_pipeline_has_key_metadata(pipeline):
+    """Pipeline should expose input_keys and target_keys."""
+    assert pipeline.input_keys == ("u",)
+    assert pipeline.target_keys == ("y",)
 
 
 def test_test_split_full_sequences(pipeline):
@@ -80,16 +89,233 @@ def test_test_split_full_sequences(pipeline):
 def test_window_count_matches_formula(dataset_path):
     """Window count should match: (seq_len - win_sz) // stp_sz + 1."""
     from tsjax import HDF5Store
-    from tsjax.data import WindowedSource
+    from tsjax.data.sources import _WindowIndex
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    index = HDF5Store(train_files, ["u", "y"])
-    source = WindowedSource(index, win_sz=20, stp_sz=10, input_signals=["u"], output_signals=["y"])
+    store = HDF5Store(train_files, ["u", "y"])
+    index = _WindowIndex(store, win_sz=20, stp_sz=10, ref_signal="u")
 
     # Verify against formula
     expected_total = 0
     for path in train_files:
-        seq_len = index.get_seq_len(path, "u")
+        seq_len = store.get_seq_len(path, "u")
         expected_total += max(0, (seq_len - 20) // 10 + 1)
 
-    assert len(source) == expected_total
+    assert len(index) == expected_total
+
+
+# ---------------------------------------------------------------------------
+# Synthetic HDF5 fixtures for new reader types
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def scalar_hdf5_files(tmp_path):
+    """Create HDF5 files with signal datasets and scalar attributes."""
+    files = []
+    rng = np.random.default_rng(42)
+    for i in range(3):
+        path = str(tmp_path / f"file_{i}.hdf5")
+        with h5py.File(path, "w") as f:
+            f.create_dataset("u", data=rng.standard_normal(100).astype(np.float32))
+            f.create_dataset("y", data=rng.standard_normal(100).astype(np.float32))
+            f.attrs["mass"] = 1.0 + i
+            f.attrs["stiffness"] = 10.0 + i * 2
+            f.attrs["class_label"] = float(i % 2)
+        files.append(path)
+    return files
+
+
+# ---------------------------------------------------------------------------
+# ScalarAttrReader tests
+# ---------------------------------------------------------------------------
+
+
+class TestScalarAttrReader:
+    def test_reads_single_attr(self, scalar_hdf5_files):
+        from tsjax.data.sources import ScalarAttrReader
+
+        reader = ScalarAttrReader(scalar_hdf5_files, ["mass"])
+        result = reader(scalar_hdf5_files[0], 0, 0)
+        assert result.shape == (1,)
+        assert result[0] == pytest.approx(1.0)
+
+    def test_reads_multiple_attrs(self, scalar_hdf5_files):
+        from tsjax.data.sources import ScalarAttrReader
+
+        reader = ScalarAttrReader(scalar_hdf5_files, ["mass", "stiffness"])
+        result = reader(scalar_hdf5_files[1], 0, 0)
+        assert result.shape == (2,)
+        assert result[0] == pytest.approx(2.0)
+        assert result[1] == pytest.approx(12.0)
+
+    def test_ignores_slices(self, scalar_hdf5_files):
+        from tsjax.data.sources import ScalarAttrReader
+
+        reader = ScalarAttrReader(scalar_hdf5_files, ["mass"])
+        r1 = reader(scalar_hdf5_files[0], 0, 0)
+        r2 = reader(scalar_hdf5_files[0], 10, 50)
+        np.testing.assert_array_equal(r1, r2)
+
+    def test_dtype_is_float32(self, scalar_hdf5_files):
+        from tsjax.data.sources import ScalarAttrReader
+
+        reader = ScalarAttrReader(scalar_hdf5_files, ["mass"])
+        result = reader(scalar_hdf5_files[0], 0, 0)
+        assert result.dtype == np.float32
+
+    def test_signals_attribute(self, scalar_hdf5_files):
+        from tsjax.data.sources import ScalarAttrReader
+
+        reader = ScalarAttrReader(scalar_hdf5_files, ["mass", "stiffness"])
+        assert reader.signals == ["mass", "stiffness"]
+
+
+# ---------------------------------------------------------------------------
+# FeatureReader tests
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureReader:
+    def test_applies_mean_reduction(self, scalar_hdf5_files):
+        from tsjax import HDF5Store
+        from tsjax.data.sources import FeatureReader
+
+        store = HDF5Store(scalar_hdf5_files, ["u"], preload=True)
+        fn = partial(np.mean, axis=0)
+        reader = FeatureReader(store, ["u"], fn)
+        result = reader(scalar_hdf5_files[0], 10, 30)
+        assert result.shape == (1,)
+
+        # Verify manually
+        expected = np.mean(store.read_signals(scalar_hdf5_files[0], ["u"], 10, 30), axis=0)
+        np.testing.assert_allclose(result, expected.astype(np.float32), atol=1e-6)
+
+    def test_multi_signal_reduction(self, scalar_hdf5_files):
+        from tsjax import HDF5Store
+        from tsjax.data.sources import FeatureReader
+
+        store = HDF5Store(scalar_hdf5_files, ["u", "y"], preload=True)
+        fn = partial(np.mean, axis=0)
+        reader = FeatureReader(store, ["u", "y"], fn)
+        result = reader(scalar_hdf5_files[0], 0, 50)
+        assert result.shape == (2,)
+        assert result.dtype == np.float32
+
+    def test_signals_attribute(self, scalar_hdf5_files):
+        from tsjax import HDF5Store
+        from tsjax.data.sources import FeatureReader
+
+        store = HDF5Store(scalar_hdf5_files, ["u"], preload=True)
+        reader = FeatureReader(store, ["u"], partial(np.mean, axis=0))
+        assert reader.signals == ["u"]
+
+
+# ---------------------------------------------------------------------------
+# compute_scalar_stats tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeScalarStats:
+    def test_shape_and_dtype(self, scalar_hdf5_files):
+        from tsjax.data.stats import compute_scalar_stats
+
+        ns = compute_scalar_stats(scalar_hdf5_files, ["mass"])
+        assert ns.mean.shape == (1,)
+        assert ns.std.shape == (1,)
+        assert ns.mean.dtype == np.float32
+        assert ns.std.dtype == np.float32
+
+    def test_matches_manual(self, scalar_hdf5_files):
+        from tsjax.data.stats import compute_scalar_stats
+
+        ns = compute_scalar_stats(scalar_hdf5_files, ["mass"])
+        vals = np.array([1.0, 2.0, 3.0])
+        np.testing.assert_allclose(ns.mean[0], np.mean(vals), atol=1e-6)
+        np.testing.assert_allclose(ns.std[0], np.std(vals), atol=1e-6)
+
+    def test_multi_attr(self, scalar_hdf5_files):
+        from tsjax.data.stats import compute_scalar_stats
+
+        ns = compute_scalar_stats(scalar_hdf5_files, ["mass", "stiffness"])
+        assert ns.mean.shape == (2,)
+        assert ns.std.shape == (2,)
+
+    def test_empty_attrs(self, scalar_hdf5_files):
+        from tsjax.data.stats import compute_scalar_stats
+
+        ns = compute_scalar_stats(scalar_hdf5_files, [])
+        assert ns.mean.shape == (0,)
+        assert ns.std.shape == (0,)
+
+
+# ---------------------------------------------------------------------------
+# ReaderSpec type dispatch tests
+# ---------------------------------------------------------------------------
+
+
+class TestReaderSpecDispatch:
+    def test_create_grain_dls_with_scalar_target(self, scalar_hdf5_files, tmp_path):
+        """Pipeline with ScalarAttr target should produce scalar batches."""
+        from tsjax.data.sources import ScalarAttr
+
+        # Set up split dirs
+        train_dir = tmp_path / "split" / "train"
+        valid_dir = tmp_path / "split" / "valid"
+        test_dir = tmp_path / "split" / "test"
+        for d in (train_dir, valid_dir, test_dir):
+            d.mkdir(parents=True)
+
+        # Copy files into splits
+        rng = np.random.default_rng(123)
+        for split_dir in (train_dir, valid_dir, test_dir):
+            for i in range(2):
+                path = str(split_dir / f"file_{i}.hdf5")
+                with h5py.File(path, "w") as f:
+                    f.create_dataset("u", data=rng.standard_normal(100).astype(np.float32))
+                    f.attrs["class_label"] = float(i % 2)
+
+        from tsjax.data.pipeline import create_grain_dls
+
+        pl = create_grain_dls(
+            inputs={"u": ["u"]},
+            targets={"y": ScalarAttr(["class_label"])},
+            dataset=tmp_path / "split",
+            win_sz=20,
+            stp_sz=20,
+            bs=2,
+        )
+        assert pl.input_keys == ("u",)
+        assert pl.target_keys == ("y",)
+        batch = pl.train[0]
+        assert batch["u"].shape == (2, 20, 1)  # windowed
+        assert batch["y"].shape == (2, 1)  # scalar
+
+    def test_create_grain_dls_with_feature_target(self, tmp_path):
+        """Pipeline with Feature target should produce reduced scalar batches."""
+        from tsjax.data.sources import Feature
+
+        # Set up split dirs with signal data
+        rng = np.random.default_rng(456)
+        for split in ("train", "valid", "test"):
+            d = tmp_path / "split" / split
+            d.mkdir(parents=True)
+            for i in range(2):
+                path = str(d / f"file_{i}.hdf5")
+                with h5py.File(path, "w") as f:
+                    f.create_dataset("u", data=rng.standard_normal(100).astype(np.float32))
+                    f.create_dataset("y", data=rng.standard_normal(100).astype(np.float32))
+
+        from tsjax.data.pipeline import create_grain_dls
+
+        pl = create_grain_dls(
+            inputs={"u": ["u"]},
+            targets={"y": Feature(["y"], fn=partial(np.mean, axis=0))},
+            dataset=tmp_path / "split",
+            win_sz=20,
+            stp_sz=20,
+            bs=2,
+        )
+        batch = pl.train[0]
+        assert batch["u"].shape == (2, 20, 1)  # windowed
+        assert batch["y"].shape == (2, 1)  # feature-reduced

@@ -43,7 +43,7 @@ BENCHMARK_DL_KWARGS: dict[str, dict[str, Any]] = {
     "BenchmarkQuadPi_Prediction": {"valid_stp_sz": 20},
 }
 
-# Valid keyword arguments for create_grain_dls (excluding positional u, y, dataset).
+# Valid keyword arguments for create_grain_dls (excluding positional inputs, targets, dataset).
 # Hardcoded to avoid importing .pipeline (and thus grain) at module level.
 _VALID_DL_KWARGS = {
     "win_sz",
@@ -68,8 +68,8 @@ def _build_pipeline_kwargs(spec: BenchmarkSpecBase, **kwargs: Any) -> dict[str, 
     import identibench.benchmark as idb_bench
 
     merged: dict[str, Any] = {
-        "u": spec.u_cols,
-        "y": spec.y_cols,
+        "inputs": {"u": spec.u_cols},
+        "targets": {"y": spec.y_cols},
         "dataset": spec.dataset_path,
     }
 
