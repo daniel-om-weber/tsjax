@@ -1,5 +1,7 @@
 """Data loading, HDF5 stores, windowing, and pipeline construction."""
 
+from .benchmark import BENCHMARK_DL_KWARGS as BENCHMARK_DL_KWARGS
+from .benchmark import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .hdf5_store import HDF5Store as HDF5Store
 from .hdf5_store import SignalInfo as SignalInfo
 from .hdf5_store import read_hdf5_attr as read_hdf5_attr

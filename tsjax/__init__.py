@@ -11,6 +11,7 @@ from .data import SignalStore as SignalStore
 from .data import WindowedSource as WindowedSource
 from .data import compute_norm_stats as compute_norm_stats
 from .data import create_grain_dls as create_grain_dls
+from .data import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .data import resample_fft as resample_fft
 from .data import resample_interp as resample_interp
 from .losses import normalized_mae as normalized_mae

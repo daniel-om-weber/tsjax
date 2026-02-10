@@ -33,6 +33,15 @@ dependencies = [
 Repository = "https://github.com/daniel-at/tsjax"
 
 [project.optional-dependencies]
+benchmark = [
+    "identibench>=0.1",
+]
+dev = [
+    "tsfast>=0.1",
+]
+interactive = [
+    "ipykernel>=6.0",
+]
 test = [
     "pytest>=7.0",
     "ruff>=0.4",
