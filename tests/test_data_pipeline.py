@@ -7,12 +7,22 @@ import numpy as np
 import pytest
 
 
-def test_norm_stats_shape_and_finite(dataset_path):
-    """compute_norm_stats returns finite float32 arrays with one element per signal."""
-    from tsjax import compute_norm_stats
+def _make_source(dataset_path, signals):
+    """Build a minimal DataSource for stats tests."""
+    from tsjax import DataSource, HDF5Store, SequenceReader
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    ns = compute_norm_stats(train_files, ["u"])
+    store = HDF5Store(train_files, signals)
+    readers = {s: SequenceReader(store, [s]) for s in signals}
+    return DataSource(store, readers)
+
+
+def test_norm_stats_shape_and_finite(dataset_path):
+    """compute_stats returns finite float32 arrays with one element per signal."""
+    from tsjax import compute_stats
+
+    source = _make_source(dataset_path, ["u"])
+    ns = compute_stats(source, "u")
     assert ns.mean.shape == (1,)
     assert ns.std.shape == (1,)
     assert ns.mean.dtype == np.float32
@@ -22,10 +32,11 @@ def test_norm_stats_shape_and_finite(dataset_path):
 
 def test_norm_stats_match_manual_computation(dataset_path):
     """Stats should match a direct h5py mean/std calculation."""
-    from tsjax import compute_norm_stats
+    from tsjax import compute_stats
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    ns = compute_norm_stats(train_files, ["u"])
+    source = _make_source(dataset_path, ["u"])
+    ns = compute_stats(source, "u")
 
     # Manual computation
     all_data = []
@@ -217,34 +228,47 @@ class TestFeatureReader:
 
 
 class TestComputeScalarStats:
-    def test_shape_and_dtype(self, scalar_hdf5_files):
-        from tsjax.data.stats import compute_scalar_stats
+    @staticmethod
+    def _make_scalar_source(files, attrs):
+        from tsjax.data.pipeline import _DummyStore
+        from tsjax.data.sources import DataSource, ScalarAttrReader
 
-        ns = compute_scalar_stats(scalar_hdf5_files, ["mass"])
+        reader = ScalarAttrReader(files, attrs)
+        store = _DummyStore(files)
+        return DataSource(store, {"x": reader})
+
+    def test_shape_and_dtype(self, scalar_hdf5_files):
+        from tsjax.data.stats import compute_stats
+
+        source = self._make_scalar_source(scalar_hdf5_files, ["mass"])
+        ns = compute_stats(source, "x")
         assert ns.mean.shape == (1,)
         assert ns.std.shape == (1,)
         assert ns.mean.dtype == np.float32
         assert ns.std.dtype == np.float32
 
     def test_matches_manual(self, scalar_hdf5_files):
-        from tsjax.data.stats import compute_scalar_stats
+        from tsjax.data.stats import compute_stats
 
-        ns = compute_scalar_stats(scalar_hdf5_files, ["mass"])
+        source = self._make_scalar_source(scalar_hdf5_files, ["mass"])
+        ns = compute_stats(source, "x")
         vals = np.array([1.0, 2.0, 3.0])
         np.testing.assert_allclose(ns.mean[0], np.mean(vals), atol=1e-6)
         np.testing.assert_allclose(ns.std[0], np.std(vals), atol=1e-6)
 
     def test_multi_attr(self, scalar_hdf5_files):
-        from tsjax.data.stats import compute_scalar_stats
+        from tsjax.data.stats import compute_stats
 
-        ns = compute_scalar_stats(scalar_hdf5_files, ["mass", "stiffness"])
+        source = self._make_scalar_source(scalar_hdf5_files, ["mass", "stiffness"])
+        ns = compute_stats(source, "x")
         assert ns.mean.shape == (2,)
         assert ns.std.shape == (2,)
 
     def test_empty_attrs(self, scalar_hdf5_files):
-        from tsjax.data.stats import compute_scalar_stats
+        from tsjax.data.stats import compute_stats
 
-        ns = compute_scalar_stats(scalar_hdf5_files, [])
+        source = self._make_scalar_source(scalar_hdf5_files, [])
+        ns = compute_stats(source, "x")
         assert ns.mean.shape == (0,)
         assert ns.std.shape == (0,)
 

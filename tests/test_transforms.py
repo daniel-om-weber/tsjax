@@ -145,9 +145,7 @@ class TestPipelineWithTransforms:
         np.testing.assert_allclose(
             pl_scaled.stats["u"].mean, pl_base.stats["u"].mean * 2, atol=1e-4
         )
-        np.testing.assert_allclose(
-            pl_scaled.stats["u"].std, pl_base.stats["u"].std * 2, atol=1e-4
-        )
+        np.testing.assert_allclose(pl_scaled.stats["u"].std, pl_base.stats["u"].std * 2, atol=1e-4)
         # y stats should be unchanged
         np.testing.assert_array_equal(pl_scaled.stats["y"].mean, pl_base.stats["y"].mean)
         np.testing.assert_array_equal(pl_scaled.stats["y"].std, pl_base.stats["y"].std)
@@ -228,7 +226,7 @@ class TestComputeStatsWithTransform:
     def test_identity_stats_close_to_raw(self, transform_dataset):
         """Stats with identity transform should closely match raw stats."""
         from tsjax.data.pipeline import create_grain_dls
-        from tsjax.data.stats import compute_stats_with_transform
+        from tsjax.data.stats import compute_stats
 
         pl = create_grain_dls(
             inputs={"u": ["u"]},
@@ -239,7 +237,7 @@ class TestComputeStatsWithTransform:
             bs=2,
         )
 
-        xform_stats = compute_stats_with_transform(pl.train_source, "u", lambda x: x)
+        xform_stats = compute_stats(pl.train_source, "u", transform=lambda x: x)
 
         # With non-overlapping windows covering all samples, stats should be very close
         np.testing.assert_allclose(xform_stats.mean, pl.stats["u"].mean, atol=1e-3)
@@ -250,7 +248,7 @@ class TestComputeStatsWithTransform:
         from functools import partial
 
         from tsjax.data.pipeline import create_grain_dls
-        from tsjax.data.stats import compute_stats_with_transform
+        from tsjax.data.stats import compute_stats
 
         pl = create_grain_dls(
             inputs={"u": ["u"]},
@@ -261,16 +259,14 @@ class TestComputeStatsWithTransform:
             bs=2,
         )
 
-        stats = compute_stats_with_transform(
-            pl.train_source, "u", partial(np.mean, axis=0)
-        )
+        stats = compute_stats(pl.train_source, "u", transform=partial(np.mean, axis=0))
         assert stats.mean.shape == (1,)
         assert stats.std.shape == (1,)
         assert stats.mean.dtype == np.float32
 
     def test_dtype_always_float32(self, transform_dataset):
         from tsjax.data.pipeline import create_grain_dls
-        from tsjax.data.stats import compute_stats_with_transform
+        from tsjax.data.stats import compute_stats
 
         pl = create_grain_dls(
             inputs={"u": ["u"]},
@@ -281,6 +277,6 @@ class TestComputeStatsWithTransform:
             bs=2,
         )
 
-        stats = compute_stats_with_transform(pl.train_source, "u", lambda x: x * 100)
+        stats = compute_stats(pl.train_source, "u", transform=lambda x: x * 100)
         assert stats.mean.dtype == np.float32
         assert stats.std.dtype == np.float32

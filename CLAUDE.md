@@ -54,7 +54,7 @@ tsjax/
         hdf5_index.py    # HDF5MmapIndex — HDF5/mmap implementation of SignalIndex
         sources.py       # WindowedSource, FullSequenceSource (format-agnostic)
         pipeline.py      # GrainPipeline, create_grain_dls (HDF5 factory)
-        stats.py         # compute_norm_stats
+        stats.py         # compute_stats
     models/              # Neural network architectures (RNN, GRU, future: TCN, PINN)
     losses/              # Loss functions (normalized_mse, normalized_mae, rmse)
     training/            # Learner, factory functions (RNNLearner, GRULearner)

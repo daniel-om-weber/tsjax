@@ -16,8 +16,7 @@ from .data import ScalarAttrReader as ScalarAttrReader
 from .data import SequenceReader as SequenceReader
 from .data import SignalInfo as SignalInfo
 from .data import SignalStore as SignalStore
-from .data import compute_norm_stats as compute_norm_stats
-from .data import compute_norm_stats_from_index as compute_norm_stats_from_index
+from .data import compute_stats as compute_stats
 from .data import create_grain_dls as create_grain_dls
 from .data import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .data import create_simulation_dls as create_simulation_dls

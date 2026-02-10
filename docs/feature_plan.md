@@ -28,7 +28,7 @@ tsjax/
         resample.py             # ResampledStore — unchanged
         sources.py              # WindowedSource, FullSequenceSource — unchanged
         pipeline.py             # GrainPipeline, create_grain_dls — unchanged
-        stats.py                # compute_norm_stats — unchanged
+        stats.py                # compute_stats — unchanged
         sampling.py             # NEW: weighted sampling, n_batches control
     models/
         rnn.py                  # RNN/GRU — unchanged

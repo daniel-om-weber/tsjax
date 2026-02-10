@@ -22,10 +22,7 @@ from .sources import (
 )
 from .stats import (
     NormStats,
-    compute_norm_stats,
-    compute_norm_stats_from_index,
-    compute_scalar_stats,
-    compute_stats_with_transform,
+    compute_stats,
 )
 
 
@@ -78,53 +75,8 @@ class GrainPipeline:
             if key in user_stats:
                 computed[key] = user_stats[key]
                 continue
-
-            reader = train.readers.get(key)
-            if reader is None:
-                raise ValueError(f"No reader for key {key!r} in train source")
-
-            if transforms and key in transforms:
-                computed[key] = compute_stats_with_transform(train, key, transforms[key])
-            elif isinstance(reader, SequenceReader):
-                computed[key] = compute_norm_stats_from_index(reader.store, reader.signals)
-            elif isinstance(reader, ScalarAttrReader):
-                # Re-read from cache — extract paths from the reader
-                import numpy as np
-
-                vals = list(reader._cache.values())
-                arr = np.stack(vals)
-                means = arr.mean(axis=0)
-                stds = np.maximum(arr.std(axis=0), 1e-8)
-                computed[key] = NormStats(
-                    mean=means.astype(np.float32), std=stds.astype(np.float32)
-                )
-            elif isinstance(reader, FeatureReader):
-                import numpy as np
-
-                sums = None
-                squares = None
-                count = 0
-                for i in range(len(train)):
-                    sample = train[i]
-                    val = sample[key].astype(np.float32)
-                    if sums is None:
-                        sums = np.zeros_like(val, dtype=np.float64)
-                        squares = np.zeros_like(val, dtype=np.float64)
-                    sums += val
-                    squares += val**2
-                    count += 1
-                means = sums / count
-                stds = np.sqrt((squares / count) - (means**2))
-                stds = np.maximum(stds, 1e-8)
-                computed[key] = NormStats(
-                    mean=means.astype(np.float32), std=stds.astype(np.float32)
-                )
-            else:
-                raise ValueError(
-                    f"Cannot auto-compute stats for key {key!r} "
-                    f"(reader type {type(reader).__name__}). "
-                    f"Pass explicit stats[{key!r}]."
-                )
+            transform = transforms.get(key) if transforms else None
+            computed[key] = compute_stats(train, key, transform=transform)
 
         # Build Grain pipelines
         train_ds = grain.MapDataset.source(train)
@@ -201,50 +153,6 @@ def _build_readers(
         elif isinstance(spec, Feature):
             readers[key] = FeatureReader(store, spec.signals, spec.fn)
     return readers
-
-
-def _compute_stats_for_spec(
-    key: str,
-    spec: ReaderSpec,
-    train_store,
-    train_files: list[str],
-    is_resampled: bool,
-) -> NormStats:
-    """Compute normalization stats for a single reader spec."""
-    if isinstance(spec, list):
-        if is_resampled:
-            return compute_norm_stats_from_index(train_store, list(spec))
-        return compute_norm_stats(train_files, list(spec))
-    elif isinstance(spec, ScalarAttr):
-        return compute_scalar_stats(train_files, spec.attrs)
-    elif isinstance(spec, Feature):
-        # Compute stats by iterating the training source with the feature fn
-        import numpy as np
-
-        signals = []
-        for s in spec.signals:
-            if s not in signals:
-                signals.append(s)
-
-        sums = None
-        squares = None
-        count = 0
-        for path in train_store.paths:
-            seq_len = train_store.get_seq_len(path, signals[0])
-            data = train_store.read_signals(path, signals, 0, seq_len)
-            val = spec.fn(data).astype(np.float32)
-            if sums is None:
-                sums = np.zeros_like(val, dtype=np.float64)
-                squares = np.zeros_like(val, dtype=np.float64)
-            sums += val
-            squares += val**2
-            count += 1
-
-        means = sums / count
-        stds = np.sqrt((squares / count) - (means**2))
-        stds = np.maximum(stds, 1e-8)
-        return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
-    raise TypeError(f"Unknown reader spec type: {type(spec)}")
 
 
 def create_grain_dls(
@@ -347,8 +255,6 @@ def create_grain_dls(
             valid_store = ResampledStore(valid_store, factor, fn)
             test_store = ResampledStore(test_store, factor, fn)
 
-    is_resampled = isinstance(train_store, ResampledStore)
-
     # Build readers and DataSources
     train_readers = _build_readers(all_specs, train_store, train_files)
     valid_readers = _build_readers(all_specs, valid_store, valid_files)
@@ -356,33 +262,31 @@ def create_grain_dls(
 
     if needs_win:
         train_source = DataSource(train_store, train_readers, win_sz=win_sz, stp_sz=stp_sz)
-        valid_source = DataSource(
-            valid_store, valid_readers, win_sz=win_sz, stp_sz=valid_stp_sz
-        )
+        valid_source = DataSource(valid_store, valid_readers, win_sz=win_sz, stp_sz=valid_stp_sz)
         test_source = DataSource(test_store, test_readers)  # full sequence
     else:
-        train_source = DataSource(train_store, train_readers) if train_store else DataSource(
-            _DummyStore(train_files), train_readers
+        train_source = (
+            DataSource(train_store, train_readers)
+            if train_store
+            else DataSource(_DummyStore(train_files), train_readers)
         )
-        valid_source = DataSource(valid_store, valid_readers) if valid_store else DataSource(
-            _DummyStore(valid_files), valid_readers
+        valid_source = (
+            DataSource(valid_store, valid_readers)
+            if valid_store
+            else DataSource(_DummyStore(valid_files), valid_readers)
         )
-        test_source = DataSource(test_store, test_readers) if test_store else DataSource(
-            _DummyStore(test_files), test_readers
+        test_source = (
+            DataSource(test_store, test_readers)
+            if test_store
+            else DataSource(_DummyStore(test_files), test_readers)
         )
 
     # Compute normalization stats from training data — one NormStats per key.
     # For transformed keys, stats are computed on the transformed output.
     stats: dict[str, NormStats] = {}
-    for key, spec in all_specs.items():
-        if transforms and key in transforms:
-            stats[key] = compute_stats_with_transform(
-                train_source, key, transforms[key]
-            )
-        else:
-            stats[key] = _compute_stats_for_spec(
-                key, spec, train_store, train_files, is_resampled
-            )
+    for key in all_specs:
+        transform = transforms.get(key) if transforms else None
+        stats[key] = compute_stats(train_source, key, transform=transform)
 
     # Build pipelines — yield raw data, no normalization.
     # Transforms are applied per-sample before shuffle/batch.

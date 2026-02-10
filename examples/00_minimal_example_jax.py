@@ -16,7 +16,7 @@ from tsjax import (
     NormStats,
     RNNLearner,
     SequenceReader,
-    compute_norm_stats_from_index,
+    compute_stats,
     create_simulation_dls,
     rmse,
 )
@@ -70,8 +70,8 @@ test_src = DataSource(store_test, {
 
 # 4. Compute normalization stats from training data
 stats: dict[str, NormStats] = {
-    "u": compute_norm_stats_from_index(store_train, ["u"]),
-    "y": compute_norm_stats_from_index(store_train, ["y"]),
+    "u": compute_stats(train_src, "u"),
+    "y": compute_stats(train_src, "y"),
 }
 
 # 5. Wrap in Grain datasets: shuffle + batch
@@ -112,7 +112,7 @@ train_src3 = make_source(stores["train"], win_sz=500, stp_sz=10)
 valid_src3 = make_source(stores["valid"], win_sz=500, stp_sz=10)
 test_src3 = make_source(stores["test"])
 
-stats3 = {s: compute_norm_stats_from_index(stores["train"], [s]) for s in signals}
+stats3 = {s: compute_stats(train_src3, s) for s in signals}
 
 train_ds3 = grain.MapDataset.source(train_src3).shuffle(seed=42).batch(16, drop_remainder=True)
 valid_ds3 = grain.MapDataset.source(valid_src3).batch(16, drop_remainder=False)

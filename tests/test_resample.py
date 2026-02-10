@@ -12,7 +12,7 @@ import pytest
 from tsjax.data.hdf5_store import HDF5Store, read_hdf5_attr
 from tsjax.data.resample import ResampledStore, resample_fft, resample_interp
 from tsjax.data.sources import DataSource, SequenceReader
-from tsjax.data.stats import compute_norm_stats_from_index
+from tsjax.data.stats import compute_stats
 
 DATASET = Path(__file__).parent.parent / "test_data" / "WienerHammerstein"
 TRAIN_DIR = DATASET / "train"
@@ -223,21 +223,35 @@ class TestReadHDF5Attr:
 
 
 class TestComputeNormStatsFromIndex:
+    @staticmethod
+    def _make_source(store):
+        readers = {"u": SequenceReader(store, ["u"]), "y": SequenceReader(store, ["y"])}
+        return DataSource(store, readers)
+
     def test_matches_original(self, train_store):
-        """Store-based stats should closely match h5py-based stats."""
-        from tsjax.data.stats import compute_norm_stats
+        """Store-based stats via compute_stats should match direct h5py computation."""
+        source = self._make_source(train_store)
+        idx = compute_stats(source, "u")
 
-        files = [str(p) for p in TRAIN_DIR.rglob("*") if p.suffix in {".hdf5", ".h5"}]
-        orig = compute_norm_stats(sorted(files), ["u"])
-        idx = compute_norm_stats_from_index(train_store, ["u"])
+        # Manual h5py reference
+        all_data = []
+        for p in sorted(str(p) for p in TRAIN_DIR.rglob("*") if p.suffix in {".hdf5", ".h5"}):
+            import h5py
 
-        np.testing.assert_allclose(idx.mean, orig.mean, atol=1e-5)
-        np.testing.assert_allclose(idx.std, orig.std, atol=1e-5)
+            with h5py.File(p, "r") as f:
+                all_data.append(f["u"][:])
+        data = np.concatenate(all_data)
+        expected_mean = np.mean(data).astype(np.float32)
+        expected_std = np.std(data).astype(np.float32)
+
+        np.testing.assert_allclose(idx.mean[0], expected_mean, atol=1e-5)
+        np.testing.assert_allclose(idx.std[0], expected_std, atol=1e-5)
 
     def test_with_resampled_store(self, train_store):
         """Stats from a ResampledStore should return valid arrays."""
         rs = ResampledStore(train_store, factor=0.5)
-        ns = compute_norm_stats_from_index(rs, ["u"])
+        source = self._make_source(rs)
+        ns = compute_stats(source, "u")
         assert ns.mean.shape == (1,)
         assert ns.std.shape == (1,)
         assert np.all(ns.std > 0)
