@@ -1,4 +1,5 @@
 """Factory functions mirroring TSFast's Learner pattern."""
+
 from __future__ import annotations
 
 from functools import partial
@@ -6,15 +7,15 @@ from functools import partial
 import jax.numpy as jnp
 from flax import nnx
 
+from .learner import Learner
 from .models import RNN
 from .pipeline import GrainPipeline
-from .learner import Learner
 from .train import normalized_mae
 
 
 def create_rnn(
     pipeline: GrainPipeline,
-    rnn_type: str = 'gru',
+    rnn_type: str = "gru",
     hidden_size: int = 100,
     num_layers: int = 1,
     seed: int = 0,
@@ -39,7 +40,7 @@ def create_rnn(
 
 def RNNLearner(
     pipeline: GrainPipeline,
-    rnn_type: str = 'lstm',
+    rnn_type: str = "lstm",
     hidden_size: int = 100,
     num_layers: int = 1,
     loss_func=normalized_mae,
@@ -48,10 +49,11 @@ def RNNLearner(
     metrics: list = [],
 ) -> Learner:
     """Create Learner with RNN model (mirrors TSFast's RNNLearner)."""
-    model = create_rnn(pipeline, rnn_type=rnn_type, hidden_size=hidden_size,
-                       num_layers=num_layers, seed=seed)
+    model = create_rnn(
+        pipeline, rnn_type=rnn_type, hidden_size=hidden_size, num_layers=num_layers, seed=seed
+    )
     return Learner(model, pipeline, loss_func=loss_func, n_skip=n_skip, metrics=metrics)
 
 
-create_gru = partial(create_rnn, rnn_type='gru')  # backward compat
-GRULearner = partial(RNNLearner, rnn_type='gru')   # backward compat
+create_gru = partial(create_rnn, rnn_type="gru")  # backward compat
+GRULearner = partial(RNNLearner, rnn_type="gru")  # backward compat

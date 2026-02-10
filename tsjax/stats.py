@@ -2,10 +2,11 @@
 
 Must match tsfast/datasets/core.py:57-84 (extract_mean_std_from_hdffiles) exactly.
 """
+
 from __future__ import annotations
 
-import numpy as np
 import h5py
+import numpy as np
 
 
 def compute_norm_stats(
@@ -27,19 +28,19 @@ def compute_norm_stats(
     counts = 0
 
     for file in lst_files:
-        with h5py.File(file, 'r') as f:
+        with h5py.File(file, "r") as f:
             for i, signal in enumerate(lst_signals):
                 data = f[signal][:]
                 if data.ndim > 1:
                     raise ValueError(
-                        f'Each dataset in a file has to be 1d. {signal} is {data.ndim}.'
+                        f"Each dataset in a file has to be 1d. {signal} is {data.ndim}."
                     )
                 sums[i] += np.sum(data)
-                squares[i] += np.sum(data ** 2)
+                squares[i] += np.sum(data**2)
 
         counts += data.size
 
     means = sums / counts
-    stds = np.sqrt((squares / counts) - (means ** 2))
+    stds = np.sqrt((squares / counts) - (means**2))
 
     return means.astype(np.float32), stds.astype(np.float32)

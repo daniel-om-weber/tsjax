@@ -1,7 +1,9 @@
 """Learner class with fit methods mirroring fastai's API."""
+
 from __future__ import annotations
 
 import time
+
 import jax.numpy as jnp
 import optax
 from flax import nnx
@@ -15,8 +17,14 @@ from .train import normalized_mae
 class Learner:
     """Wraps an RNN model and pipeline with fastai-style fit methods."""
 
-    def __init__(self, model: RNN, pipeline: GrainPipeline,
-                 loss_func=normalized_mae, n_skip: int = 0, metrics: list = []):
+    def __init__(
+        self,
+        model: RNN,
+        pipeline: GrainPipeline,
+        loss_func=normalized_mae,
+        n_skip: int = 0,
+        metrics: list = [],
+    ):
         self.model = model
         self.pipeline = pipeline
         self.loss_func = loss_func
@@ -31,8 +39,9 @@ class Learner:
         tx = optax.adam(lr)
         self._fit(n_epoch, tx, progress=progress)
 
-    def fit_flat_cos(self, n_epoch: int, lr: float = 3e-3, pct_start: float = 0.75,
-                     progress: bool = True):
+    def fit_flat_cos(
+        self, n_epoch: int, lr: float = 3e-3, pct_start: float = 0.75, progress: bool = True
+    ):
         """Train with flat LR then cosine decay."""
         batches_per_epoch = len(self.pipeline.train)
         total_steps = n_epoch * batches_per_epoch
@@ -92,17 +101,21 @@ class Learner:
             n_batches = 0
             batch_iter = self.pipeline.train
             if progress:
-                batch_iter = tqdm(batch_iter, total=n_total_batches,
-                                  desc=f'Epoch {epoch+1}/{n_epoch}', leave=False,
-                                  mininterval=1.0)
+                batch_iter = tqdm(
+                    batch_iter,
+                    total=n_total_batches,
+                    desc=f"Epoch {epoch + 1}/{n_epoch}",
+                    leave=False,
+                    mininterval=1.0,
+                )
             for batch in batch_iter:
-                u = jnp.asarray(batch['u'])
-                y = jnp.asarray(batch['y'])
+                u = jnp.asarray(batch["u"])
+                y = jnp.asarray(batch["y"])
                 loss = train_step(model, optimizer, u, y)
                 epoch_loss += float(loss)
                 n_batches += 1
                 if progress:
-                    batch_iter.set_postfix(loss=f'{epoch_loss/n_batches:.4f}', refresh=False)
+                    batch_iter.set_postfix(loss=f"{epoch_loss / n_batches:.4f}", refresh=False)
 
             avg_train = epoch_loss / max(n_batches, 1)
             self.train_losses.append(avg_train)
@@ -112,8 +125,8 @@ class Learner:
             metric_sums = [0.0] * len(metric_fns)
             n_val = 0
             for batch in self.pipeline.valid:
-                u = jnp.asarray(batch['u'])
-                y = jnp.asarray(batch['y'])
+                u = jnp.asarray(batch["u"])
+                y = jnp.asarray(batch["y"])
                 loss, mvals = eval_step(model, u, y)
                 val_loss += float(loss)
                 for i, v in enumerate(mvals):
@@ -128,8 +141,13 @@ class Learner:
 
             t = int(time.time() - epoch_start)
             h, m, s = t // 3600, (t // 60) % 60, t % 60
-            time_str = f'{h}:{m:02d}:{s:02d}' if h else f'{m:02d}:{s:02d}'
+            time_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
             total_epoch = len(self.train_losses)
-            metrics_str = ''.join(f'  {mf.__name__}={avg:.6f}' for mf, avg in zip(metric_fns, metric_avgs))
-            print(f'Epoch {total_epoch:3d}  train_loss={avg_train:.6f}  valid_loss={avg_val:.6f}{metrics_str}  {time_str}')
+            metrics_str = "".join(
+                f"  {mf.__name__}={avg:.6f}" for mf, avg in zip(metric_fns, metric_avgs)
+            )
+            print(
+                f"Epoch {total_epoch:3d}  train_loss={avg_train:.6f}"
+                f"  valid_loss={avg_val:.6f}{metrics_str}  {time_str}"
+            )

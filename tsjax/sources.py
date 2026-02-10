@@ -1,7 +1,9 @@
 """Grain data sources for windowed and full-sequence HDF5 reading."""
+
 from __future__ import annotations
 
 import bisect
+
 import numpy as np
 
 from .hdf5_index import HDF5MmapIndex
@@ -53,7 +55,7 @@ class WindowedHDF5Source:
 
         u = self.mmap_index.read_signals(path, self.input_signals, l_slc, r_slc)
         y = self.mmap_index.read_signals(path, self.output_signals, l_slc, r_slc)
-        return {'u': u, 'y': y}
+        return {"u": u, "y": y}
 
 
 class FullSequenceSource:
@@ -78,4 +80,4 @@ class FullSequenceSource:
         seq_len = self.mmap_index.get_seq_len(path)
         u = self.mmap_index.read_signals(path, self.input_signals, 0, seq_len)
         y = self.mmap_index.read_signals(path, self.output_signals, 0, seq_len)
-        return {'u': u, 'y': y}
+        return {"u": u, "y": y}

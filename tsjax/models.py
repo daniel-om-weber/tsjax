@@ -1,4 +1,5 @@
 """RNN model with internal normalization using Flax NNX."""
+
 from __future__ import annotations
 
 import jax.numpy as jnp
@@ -7,6 +8,7 @@ from flax import nnx
 
 class Buffer(nnx.Variable):
     """Non-trainable variable excluded from gradients."""
+
     pass
 
 
@@ -22,7 +24,7 @@ class RNN(nnx.Module):
         output_size: int,
         hidden_size: int = 100,
         num_layers: int = 1,
-        rnn_type: str = 'gru',
+        rnn_type: str = "gru",
         u_mean: jnp.ndarray | None = None,
         u_std: jnp.ndarray | None = None,
         y_mean: jnp.ndarray | None = None,
@@ -38,9 +40,9 @@ class RNN(nnx.Module):
 
         # Select cell type
         match rnn_type.lower():
-            case 'gru':
+            case "gru":
                 CellType = nnx.GRUCell
-            case 'lstm':
+            case "lstm":
                 CellType = nnx.OptimizedLSTMCell
             case _:
                 raise ValueError(f"Unknown rnn_type: {rnn_type!r}. Use 'gru' or 'lstm'.")

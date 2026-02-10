@@ -1,9 +1,11 @@
 """HDF5MmapIndex: picklable HDF5 reader using mmap for contiguous datasets."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-import numpy as np
+
 import h5py
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -21,13 +23,14 @@ class HDF5MmapIndex:
     Falls back to h5py for chunked/compressed datasets.
     """
 
-    def __init__(self, hdf_paths, signal_names, preload=False):
+    def __init__(self, hdf_paths, signal_names, preload=False, dtype=np.float32):
         self.signal_names = list(signal_names)
+        self.dtype = dtype
         self.entries: dict[str, dict[str, SignalInfo]] = {}
         self._cache: dict[str, dict[str, np.ndarray]] | None = {} if preload else None
         for path in hdf_paths:
             path_str = str(path)
-            with h5py.File(path_str, 'r') as f:
+            with h5py.File(path_str, "r") as f:
                 self.entries[path_str] = {}
                 if preload:
                     self._cache[path_str] = {}
@@ -43,7 +46,7 @@ class HDF5MmapIndex:
                         is_contiguous=is_contiguous,
                     )
                     if preload:
-                        self._cache[path_str][name] = ds[:].astype(np.float32)
+                        self._cache[path_str][name] = ds[:].astype(self.dtype)
 
     def read_slice(self, path: str, signal: str, l_slc: int, r_slc: int) -> np.ndarray:
         """Read a window from a signal. Thread-safe."""
@@ -53,18 +56,21 @@ class HDF5MmapIndex:
         info = self.entries[path][signal]
         if info.is_contiguous:
             arr = np.memmap(
-                path, dtype=info.dtype_str, mode='r',
-                offset=info.offset, shape=info.shape,
+                path,
+                dtype=info.dtype_str,
+                mode="r",
+                offset=info.offset,
+                shape=info.shape,
             )
-            return arr[l_slc:r_slc].copy()
+            return arr[l_slc:r_slc].astype(self.dtype)
         else:
-            with h5py.File(path, 'r') as f:
-                return f[signal][l_slc:r_slc]
+            with h5py.File(path, "r") as f:
+                return f[signal][l_slc:r_slc].astype(self.dtype)
 
     def read_signals(self, path: str, signals: list[str], l_slc: int, r_slc: int) -> np.ndarray:
         """Read and stack multiple signals into shape (window_len, n_signals)."""
         arrays = [self.read_slice(path, s, l_slc, r_slc) for s in signals]
-        return np.stack(arrays, axis=-1).astype(np.float32)
+        return np.stack(arrays, axis=-1)
 
     def get_seq_len(self, path: str, signal: str | None = None) -> int:
         """Get sequence length for a file. Uses first signal if none specified."""

@@ -1,26 +1,29 @@
 """Factory function to create Grain data pipelines yielding raw data."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import numpy as np
+
 import grain
+import numpy as np
 
 from .hdf5_index import HDF5MmapIndex
-from .sources import WindowedHDF5Source, FullSequenceSource
+from .sources import FullSequenceSource, WindowedHDF5Source
 from .stats import compute_norm_stats
 
 
 @dataclass
 class GrainPipeline:
     """Container for train/valid/test Grain datasets with norm stats."""
+
     train: grain.MapDataset
     valid: grain.MapDataset
     test: grain.MapDataset
-    u_mean: 'np.ndarray'
-    u_std: 'np.ndarray'
-    y_mean: 'np.ndarray'
-    y_std: 'np.ndarray'
+    u_mean: "np.ndarray"
+    u_std: "np.ndarray"
+    y_mean: "np.ndarray"
+    y_std: "np.ndarray"
     train_source: WindowedHDF5Source
     valid_source: WindowedHDF5Source
     test_source: FullSequenceSource
@@ -28,8 +31,8 @@ class GrainPipeline:
 
 def _get_hdf_files(path: Path) -> list[str]:
     """Get sorted HDF5 files from a directory."""
-    extensions = {'.hdf5', '.h5'}
-    return sorted(str(p) for p in path.rglob('*') if p.suffix in extensions)
+    extensions = {".hdf5", ".h5"}
+    return sorted(str(p) for p in path.rglob("*") if p.suffix in extensions)
 
 
 def _get_split_files(dataset: Path | str, split: str) -> list[str]:
@@ -59,9 +62,9 @@ def create_grain_dls(
     dataset = Path(dataset)
 
     # Build separate mmap indices per split
-    train_files = _get_split_files(dataset, 'train')
-    valid_files = _get_split_files(dataset, 'valid')
-    test_files = _get_split_files(dataset, 'test')
+    train_files = _get_split_files(dataset, "train")
+    valid_files = _get_split_files(dataset, "valid")
+    test_files = _get_split_files(dataset, "test")
 
     train_index = HDF5MmapIndex(train_files, all_signals, preload=preload)
     valid_index = HDF5MmapIndex(valid_files, all_signals, preload=preload)
@@ -78,20 +81,12 @@ def create_grain_dls(
 
     # Build pipelines — yield raw data, no normalization
     train_ds = (
-        grain.MapDataset.source(train_source)
-        .shuffle(seed=seed)
-        .batch(bs, drop_remainder=True)
+        grain.MapDataset.source(train_source).shuffle(seed=seed).batch(bs, drop_remainder=True)
     )
 
-    valid_ds = (
-        grain.MapDataset.source(valid_source)
-        .batch(bs, drop_remainder=False)
-    )
+    valid_ds = grain.MapDataset.source(valid_source).batch(bs, drop_remainder=False)
 
-    test_ds = (
-        grain.MapDataset.source(test_source)
-        .batch(1, drop_remainder=False)
-    )
+    test_ds = grain.MapDataset.source(test_source).batch(1, drop_remainder=False)
 
     return GrainPipeline(
         train=train_ds,
