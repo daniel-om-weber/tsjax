@@ -80,13 +80,11 @@ def test_test_split_full_sequences(pipeline):
 def test_window_count_matches_formula(dataset_path):
     """Window count should match: (seq_len - win_sz) // stp_sz + 1."""
     from tsjax import HDF5MmapIndex
-    from tsjax.sources import WindowedHDF5Source
+    from tsjax.data import WindowedSource
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
     index = HDF5MmapIndex(train_files, ["u", "y"])
-    source = WindowedHDF5Source(
-        index, win_sz=20, stp_sz=10, input_signals=["u"], output_signals=["y"]
-    )
+    source = WindowedSource(index, win_sz=20, stp_sz=10, input_signals=["u"], output_signals=["y"])
 
     # Verify against formula
     expected_total = 0

@@ -5,11 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from flax import nnx
 
-
-class Buffer(nnx.Variable):
-    """Non-trainable variable excluded from gradients."""
-
-    pass
+from tsjax._core import Buffer
 
 
 class RNN(nnx.Module):
@@ -78,4 +74,4 @@ class RNN(nnx.Module):
         return x * self.y_std[...] + self.y_mean[...]
 
 
-GRU = RNN  # backward compat
+GRU = RNN

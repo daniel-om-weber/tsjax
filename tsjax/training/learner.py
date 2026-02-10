@@ -9,9 +9,9 @@ import optax
 from flax import nnx
 from tqdm import tqdm
 
-from .models import RNN
-from .pipeline import GrainPipeline
-from .train import normalized_mae
+from tsjax.data import GrainPipeline
+from tsjax.losses import normalized_mae
+from tsjax.models import RNN
 
 
 class Learner:

@@ -7,10 +7,11 @@ from functools import partial
 import jax.numpy as jnp
 from flax import nnx
 
+from tsjax.data import GrainPipeline
+from tsjax.losses import normalized_mae
+from tsjax.models import RNN
+
 from .learner import Learner
-from .models import RNN
-from .pipeline import GrainPipeline
-from .train import normalized_mae
 
 
 def create_rnn(
@@ -55,5 +56,5 @@ def RNNLearner(
     return Learner(model, pipeline, loss_func=loss_func, n_skip=n_skip, metrics=metrics)
 
 
-create_gru = partial(create_rnn, rnn_type="gru")  # backward compat
-GRULearner = partial(RNNLearner, rnn_type="gru")  # backward compat
+create_gru = partial(create_rnn, rnn_type="gru")
+GRULearner = partial(RNNLearner, rnn_type="gru")

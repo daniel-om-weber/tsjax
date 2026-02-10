@@ -9,7 +9,7 @@ import grain
 import numpy as np
 
 from .hdf5_index import HDF5MmapIndex
-from .sources import FullSequenceSource, WindowedHDF5Source
+from .sources import FullSequenceSource, WindowedSource
 from .stats import compute_norm_stats
 
 
@@ -24,8 +24,8 @@ class GrainPipeline:
     u_std: "np.ndarray"
     y_mean: "np.ndarray"
     y_std: "np.ndarray"
-    train_source: WindowedHDF5Source
-    valid_source: WindowedHDF5Source
+    train_source: WindowedSource
+    valid_source: WindowedSource
     test_source: FullSequenceSource
 
 
@@ -75,8 +75,8 @@ def create_grain_dls(
     y_mean, y_std = compute_norm_stats(train_files, list(y))
 
     # Build sources
-    train_source = WindowedHDF5Source(train_index, win_sz, stp_sz, list(u), list(y))
-    valid_source = WindowedHDF5Source(valid_index, win_sz, valid_stp_sz, list(u), list(y))
+    train_source = WindowedSource(train_index, win_sz, stp_sz, list(u), list(y))
+    valid_source = WindowedSource(valid_index, win_sz, valid_stp_sz, list(u), list(y))
     test_source = FullSequenceSource(test_index, list(u), list(y))
 
     # Build pipelines — yield raw data, no normalization

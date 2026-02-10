@@ -48,6 +48,11 @@ class HDF5MmapIndex:
                     if preload:
                         self._cache[path_str][name] = ds[:].astype(self.dtype)
 
+    @property
+    def paths(self) -> list[str]:
+        """Ordered file paths known to this index."""
+        return list(self.entries.keys())
+
     def read_slice(self, path: str, signal: str, l_slc: int, r_slc: int) -> np.ndarray:
         """Read a window from a signal. Thread-safe."""
         path = str(path)

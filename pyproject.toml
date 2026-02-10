@@ -38,7 +38,7 @@ test = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["tsjax"]
+include = ["tsjax", "tsjax.*"]
 
 [tool.setuptools.package-data]
 tsjax = ["py.typed"]
