@@ -17,5 +17,10 @@ dependencies = [
     "tqdm>=4.60",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "tsfast @ file:///Users/daniel/Development/tsfast",
+]
+
 [tool.setuptools.packages.find]
 include = ["tsjax"]
