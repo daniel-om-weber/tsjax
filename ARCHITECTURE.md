@@ -56,28 +56,28 @@ From raw files to trained model — what each component does, how they connect, 
  ┌──────────────────────────────┐   ┌──────────────────────────────────┐
  │  STAGE 3a: READERS           │   │  STAGE 3b: NORM STATS            │
  │                              │   │                                  │
- │  SequenceReader              │   │  compute_norm_stats()            │
- │  ├── reads signal windows   │   │  ├── reads all training files    │
- │  │   from a SignalStore      │   │  ├── accumulates mean/std        │
- │  ├── windowed or full-seq   │   │  └── returns NormStats(mean,std) │
- │  │   (l_slc>=r_slc → full)  │   │                                  │
- │  └── (seq_len, n_signals)    │   │  compute_norm_stats_from_index() │
- │                              │   │  ├── via SignalStore interface   │
- │  ScalarAttrReader            │   │  └── works with ResampledStore   │
- │  ├── reads per-file HDF5    │   │                                  │
- │  │   root-level attributes   │   │  compute_scalar_stats()          │
- │  ├── pre-caches at init     │   │  └── stats over HDF5 attributes  │
- │  └── returns (n_attrs,)      │   │                                  │
- │                              │   │  compute_stats_with_transform()  │
- │  FeatureReader               │   │  └── iterates source, applies    │
- │  ├── reads window from      │   │      transform, accumulates      │
+ │  SequenceReader              │   │  compute_stats(source, key)      │
+ │  ├── reads signal windows   │   │  ├── dispatches on reader type   │
+ │  │   from a SignalStore      │   │  │   (Sequence/Scalar/Feature)   │
+ │  ├── windowed or full-seq   │   │  ├── optional transform kwarg    │
+ │  │   (l_slc>=r_slc → full)  │   │  │   for per-sample transforms   │
+ │  └── (seq_len, n_signals)    │   │  └── returns NormStats(mean,std) │
+ │                              │   │                                  │
+ │  ScalarAttrReader            │   │  Output per key:                 │
+ │  ├── reads per-file HDF5    │   │    NormStats(mean, std)           │
+ │  │   root-level attributes   │   │                                  │
+ │  ├── pre-caches at init     │   │  Swappable: stats algorithm      │
+ │  └── returns (n_attrs,)      │   │  Future:    cached stats,        │
+ │                              │   │             running stats         │
+ │  FeatureReader               │   │                                  │
+ │  ├── reads window from      │   │                                  │
  │  │   store, applies fn       │   │                                  │
- │  └── returns (n_features,)   │   │  Output per key:                 │
- │                              │   │    NormStats(mean, std)           │
+ │  └── returns (n_features,)   │   │                                  │
+ │                              │   │                                  │
  │  Protocol: Reader            │   │                                  │
- │    .signals: list[str]       │   │  Swappable: stats algorithm      │
- │    .__call__(path, l, r)     │   │  Future:    cached stats,        │
- │      -> ndarray              │   │             running stats         │
+ │    .signals: list[str]       │   │                                  │
+ │    .__call__(path, l, r)     │   │                                  │
+ │      -> ndarray              │   │                                  │
  │                              │   │                                  │
  │  Swappable: any Reader impl  │   │                                  │
  └──────────────┬───────────────┘   └─────────────────┬────────────────┘
@@ -243,7 +243,7 @@ From raw files to trained model — what each component does, how they connect, 
 | Reader | `Reader` protocol: `.signals`, `.__call__(path, l_slc, r_slc)` → `ndarray` | New class implementing `Reader` |
 | Data source | `__len__()` + `__getitem__(idx)` → `dict[str, ndarray]` | New class |
 | Transforms | `Transform` = `Callable[[ndarray], ndarray]` per batch key | Any function with same signature |
-| Norm stats | `fn(files, signals) → NormStats` | New function |
+| Norm stats | `compute_stats(source, key) → NormStats` | Implement `compute_stats() → NormStats` method on reader |
 | Model | `nnx.Module` with `__call__`: input arrays → output array | New class (TCN, CRNN, PIRNN) |
 | Loss function | `fn(pred, target, y_mean, y_std) → scalar` | Any function with same signature |
 | Metrics | Same signature as loss | Any function with same signature |
@@ -278,7 +278,7 @@ Any component that respects these can be swapped without touching the rest.
 | HDF5 store | `data/hdf5_store.py` | `HDF5Store`, `SignalInfo`, `read_hdf5_attr()` |
 | Resampling | `data/resample.py` | `ResampledStore`, `resample_interp()`, `resample_fft()` |
 | Readers + data source | `data/sources.py` | `DataSource`, `SequenceReader`, `ScalarAttrReader`, `FeatureReader`, `Reader`, `ScalarAttr`, `Feature` |
-| Norm stats | `data/stats.py` | `NormStats`, `compute_norm_stats()`, `compute_norm_stats_from_index()`, `compute_scalar_stats()` |
+| Norm stats | `data/stats.py` | `NormStats`, `compute_stats()` |
 | Transforms | `data/item_transforms.py` | `Transform`, `stft_transform()` |
 | Pipeline assembly | `data/pipeline.py` | `GrainPipeline`, `create_grain_dls()`, `create_simulation_dls()` |
 | Benchmark integration | `data/benchmark.py` | `create_grain_dls_from_spec()`, `BENCHMARK_DL_KWARGS` |

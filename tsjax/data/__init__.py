@@ -20,10 +20,8 @@ from .sources import Reader as Reader
 from .sources import ScalarAttr as ScalarAttr
 from .sources import ScalarAttrReader as ScalarAttrReader
 from .sources import SequenceReader as SequenceReader
+from .stats import EMPTY_STATS as EMPTY_STATS
 from .stats import IDENTITY_STATS as IDENTITY_STATS
 from .stats import NormStats as NormStats
-from .stats import compute_norm_stats as compute_norm_stats
-from .stats import compute_norm_stats_from_index as compute_norm_stats_from_index
-from .stats import compute_scalar_stats as compute_scalar_stats
-from .stats import compute_stats_with_transform as compute_stats_with_transform
+from .stats import compute_stats as compute_stats
 from .store import SignalStore as SignalStore

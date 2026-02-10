@@ -1,20 +1,16 @@
-"""Compute normalization statistics from HDF5 files.
-
-Must match tsfast/datasets/core.py:57-84 (extract_mean_std_from_hdffiles) exactly.
-"""
+"""Compute normalization statistics from training data."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import h5py
 import numpy as np
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .store import SignalStore
+    from .sources import DataSource
 
 
 @dataclass(frozen=True)
@@ -27,132 +23,69 @@ class NormStats:
 
 IDENTITY_STATS = NormStats(mean=np.zeros(1, dtype=np.float32), std=np.ones(1, dtype=np.float32))
 
+EMPTY_STATS = NormStats(
+    mean=np.array([], dtype=np.float32),
+    std=np.array([], dtype=np.float32),
+)
 
-def compute_norm_stats(
-    lst_files: list[str],
-    lst_signals: list[str],
+
+def compute_stats(
+    source: DataSource,
+    key: str,
+    *,
+    transform: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> NormStats:
-    """Calculate mean and std of signals from HDF5 files.
+    """Compute normalization stats for a single key from a DataSource.
 
-    Matches the exact accumulation logic of extract_mean_std_from_hdffiles:
-    - float64 accumulation for sums and squares
-    - counts += data.size OUTSIDE per-signal loop (uses last signal's size)
-    - Final cast to float32
-    """
-    if len(lst_signals) == 0:
-        return NormStats(
-            mean=np.array([], dtype=np.float32),
-            std=np.array([], dtype=np.float32),
-        )
+    If the reader for *key* has a ``compute_stats()`` method, it is called
+    directly.  Otherwise a ``TypeError`` is raised advising the caller to
+    pass pre-computed stats.
 
-    sums = np.zeros(len(lst_signals))
-    squares = np.zeros(len(lst_signals))
-    counts = 0
-
-    for file in lst_files:
-        with h5py.File(file, "r") as f:
-            for i, signal in enumerate(lst_signals):
-                data = f[signal][:]
-                if data.ndim > 1:
-                    raise ValueError(
-                        f"Each dataset in a file has to be 1d. {signal} is {data.ndim}."
-                    )
-                sums[i] += np.sum(data)
-                squares[i] += np.sum(data**2)
-
-        counts += data.size
-
-    means = sums / counts
-    stds = np.sqrt((squares / counts) - (means**2))
-
-    return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
-
-
-def compute_scalar_stats(
-    paths: list[str],
-    attr_names: list[str],
-) -> NormStats:
-    """Compute mean/std of per-file HDF5 attributes.
+    When *transform* is given the reader method is bypassed: the function
+    iterates all windowed samples, applies *transform*, and accumulates
+    on the transformed output.
 
     Parameters
     ----------
-    paths : HDF5 file paths to iterate.
-    attr_names : Root-level attribute names to read from each file.
+    source : DataSource
+        Typically the training-split source.
+    key : str
+        Batch key whose reader to use (e.g. ``"u"`` or ``"y"``).
+    transform : callable, optional
+        Per-sample transform applied before accumulation.  Takes an ndarray
+        (the raw sample value for *key*) and returns an ndarray.
     """
-    if len(attr_names) == 0:
-        return NormStats(
-            mean=np.array([], dtype=np.float32),
-            std=np.array([], dtype=np.float32),
-        )
+    reader = source.readers.get(key)
+    if reader is None:
+        raise ValueError(f"No reader for key {key!r} in source")
 
-    sums = np.zeros(len(attr_names))
-    squares = np.zeros(len(attr_names))
-    count = 0
+    if transform is not None:
+        return _transform_stats(source, key, transform)
 
-    for path in paths:
-        with h5py.File(path, "r") as f:
-            for i, attr in enumerate(attr_names):
-                val = float(f.attrs[attr])
-                sums[i] += val
-                squares[i] += val**2
-        count += 1
+    if hasattr(reader, "compute_stats"):
+        return reader.compute_stats()
 
-    means = sums / count
-    stds = np.sqrt((squares / count) - (means**2))
-    # Prevent zero std (single-value or constant attrs)
-    stds = np.maximum(stds, 1e-8)
-
-    return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
+    raise TypeError(
+        f"Cannot auto-compute stats for key {key!r} "
+        f"(reader type {type(reader).__name__} has no compute_stats method). "
+        f"Pass pre-computed stats instead."
+    )
 
 
-def compute_norm_stats_from_index(
-    index: SignalStore,
-    signals: list[str],
-) -> NormStats:
-    """Calculate mean and std of signals via a :class:`SignalStore`.
-
-    Works with any SignalStore implementation including
-    :class:`~tsjax.data.resample.ResampledStore`, so that norm stats
-    reflect resampled data.
-
-    The accumulation logic intentionally mirrors :func:`compute_norm_stats`
-    (``counts += data.size`` uses the last signal's size per file).
-    """
-    if len(signals) == 0:
-        return NormStats(
-            mean=np.array([], dtype=np.float32),
-            std=np.array([], dtype=np.float32),
-        )
-
-    sums = np.zeros(len(signals))
-    squares = np.zeros(len(signals))
-    counts = 0
-
-    for path in index.paths:
-        for i, signal in enumerate(signals):
-            seq_len = index.get_seq_len(path, signal)
-            data = index.read_signals(path, [signal], 0, seq_len)[:, 0]
-            sums[i] += np.sum(data)
-            squares[i] += np.sum(data**2)
-
-        counts += seq_len
-
-    means = sums / counts
-    stds = np.sqrt((squares / counts) - (means**2))
-
-    return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
+# ---------------------------------------------------------------------------
+# Transform-based stats (reader-type-agnostic, operates on DataSource)
+# ---------------------------------------------------------------------------
 
 
-def compute_stats_with_transform(
-    source,
+def _transform_stats(
+    source: DataSource,
     key: str,
     transform: Callable[[np.ndarray], np.ndarray],
 ) -> NormStats:
-    """Compute normalization stats for a key after applying a transform.
+    """Stats after applying a per-sample transform.
 
-    Iterates the entire *source* (typically the training ``DataSource``),
-    applies *transform* to each sample's *key* value, and accumulates
-    per-channel mean/std on the transformed output.
+    Iterates the entire source (windowed samples), applies *transform*
+    to each sample's *key* value, and accumulates per-channel mean/std.
     """
     sums = None
     squares = None
