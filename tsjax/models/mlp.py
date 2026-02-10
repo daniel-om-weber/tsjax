@@ -7,7 +7,11 @@ from flax import nnx
 
 
 class MLP(nnx.Module):
-    """Feedforward network for tabular data (normalized-space in, normalized-space out).
+    """Feedforward network (normalized-space in, normalized-space out).
+
+    All layers operate on the last axis and broadcast over leading dimensions,
+    so the same model handles both ``(batch, features)`` and
+    ``(batch, seq_len, features)`` inputs.
 
     Wrap with :class:`NormalizedModel` or ``nnx.Sequential(Normalize, MLP, Denormalize)``
     to handle raw physical values.
@@ -38,8 +42,8 @@ class MLP(nnx.Module):
     def __call__(self, u):
         """Forward pass: normalized input -> normalized output.
 
-        u: (batch, input_size)
-        returns: (batch, output_size)
+        u: (*batch, input_size)
+        returns: (*batch, output_size)
         """
         x = u
         for layer in self.hidden_layers:

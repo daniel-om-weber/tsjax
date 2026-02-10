@@ -172,17 +172,13 @@ From raw files to trained model — what each component does, how they connect, 
  │      3. linear proj:  x = linear(x)                                 │
  │      4. denormalize:  x = x * y_std + y_mean                       │
  │                                                                     │
- │  RNNEncoder (nnx.Module) — sequence → scalar                       │
- │  ├── same Buffer + RNN layers as RNN                                │
- │  ├── last-hidden-state pooling: x[:, -1, :]                        │
- │  └── __call__(u): (bs, seq_len, n_in) → (bs, n_out)               │
- │      For classification: y_mean/y_std left as identity (raw logits) │
- │      For regression: y_mean/y_std denormalize to physical units     │
+ │  LastPool (nnx.Module) — composable sequence pooling               │
+ │  └── __call__(x): (*batch, seq_len, feat) → (*batch, feat)        │
+ │      Compose: nnx.Sequential(RNN(...), LastPool()) for encoding    │
  │                                                                     │
- │  MLP (nnx.Module) — scalar → scalar                                │
- │  ├── same Buffer normalization pattern                              │
+ │  MLP (nnx.Module) — feedforward network                            │
  │  ├── hidden layers with ReLU (configurable sizes, default [64,32]) │
- │  └── __call__(u): (bs, n_in) → (bs, n_out)                        │
+ │  └── __call__(u): (*batch, n_in) → (*batch, n_out)                │
  │                                                                     │
  │  All models: raw in → raw out.  No external normalization needed.  │
  └───────────────────────────────────┬─────────────────────────────────┘
@@ -265,7 +261,7 @@ Any component that respects these can be swapped without touching the rest.
 | Use case | Factory | Model | Loss |
 |---|---|---|---|
 | Time series simulation | `RNNLearner` / `GRULearner` | `RNN` | `normalized_mae` |
-| Sequence classification | `ClassifierLearner` | `RNNEncoder` | `cross_entropy_loss` |
+| Sequence classification | `ClassifierLearner` | `RNN` + `LastPool` | `cross_entropy_loss` |
 | Tabular regression | `RegressionLearner` | `MLP` | `normalized_mse` |
 | Benchmark suite | `create_grain_dls_from_spec` | (any of above) | (any of above) |
 
@@ -283,7 +279,7 @@ Any component that respects these can be swapped without touching the rest.
 | Pipeline assembly | `data/pipeline.py` | `GrainPipeline`, `create_grain_dls()`, `create_simulation_dls()` |
 | Benchmark integration | `data/benchmark.py` | `create_grain_dls_from_spec()`, `BENCHMARK_DL_KWARGS` |
 | RNN model | `models/rnn.py` | `RNN`, `GRU` |
-| RNN encoder | `models/encoder.py` | `RNNEncoder` |
+| Sequence pooling | `models/pool.py` | `LastPool` |
 | MLP model | `models/mlp.py` | `MLP` |
 | Regression losses | `losses/core.py` | `normalized_mse`, `normalized_mae`, `rmse` |
 | Classification loss | `losses/classification.py` | `cross_entropy_loss` |

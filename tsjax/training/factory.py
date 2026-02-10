@@ -9,7 +9,7 @@ from flax import nnx
 from tsjax.data import GrainPipeline
 from tsjax.losses import normalized_mae, normalized_mse
 from tsjax.losses.classification import cross_entropy_loss
-from tsjax.models import MLP, RNN, Denormalize, Normalize, NormalizedModel, RNNEncoder
+from tsjax.models import MLP, RNN, Denormalize, LastPool, Normalize, NormalizedModel
 
 from .learner import Learner
 
@@ -98,11 +98,11 @@ def ClassifierLearner(
     seed: int = 0,
     metrics: list = [],
 ) -> Learner:
-    """Create Learner with RNNEncoder model + cross-entropy loss."""
+    """Create Learner with RNN + LastPool model + cross-entropy loss."""
     u_stats = pipeline.stats[pipeline.input_keys[0]]
     input_size = len(u_stats.mean)
 
-    encoder = RNNEncoder(
+    rnn = RNN(
         input_size=input_size,
         output_size=n_classes,
         hidden_size=hidden_size,
@@ -110,6 +110,7 @@ def ClassifierLearner(
         rnn_type=rnn_type,
         rngs=nnx.Rngs(seed),
     )
+    encoder = nnx.Sequential(rnn, LastPool())
     model = NormalizedModel(
         encoder,
         norm_in=Normalize(input_size, u_stats.mean, u_stats.std),

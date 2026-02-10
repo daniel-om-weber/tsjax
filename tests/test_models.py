@@ -155,104 +155,59 @@ def test_invalid_rnn_type():
 
 
 # ---------------------------------------------------------------------------
-# RNNEncoder tests
+# LastPool tests
 # ---------------------------------------------------------------------------
 
 
-def test_encoder_gru_output_shape():
-    """GRU encoder should produce (batch, output_size)."""
-    from tsjax import RNNEncoder
+def test_last_pool_batched():
+    """LastPool should select last time step from (batch, seq_len, features)."""
+    from tsjax import LastPool
 
-    model = RNNEncoder(input_size=1, output_size=5, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
-    x = jnp.ones((2, 10, 1))
-    out = model(x)
-    assert out.shape == (2, 5)
-
-
-def test_encoder_lstm_output_shape():
-    """LSTM encoder should produce (batch, output_size)."""
-    from tsjax import RNNEncoder
-
-    model = RNNEncoder(
-        input_size=3, output_size=7, hidden_size=16, rnn_type="lstm", rngs=nnx.Rngs(0)
-    )
-    x = jnp.ones((4, 20, 3))
-    out = model(x)
-    assert out.shape == (4, 7)
-
-
-def test_encoder_multilayer():
-    """Multi-layer encoder should produce correct shape."""
-    from tsjax import RNNEncoder
-
-    model = RNNEncoder(
-        input_size=2, output_size=3, hidden_size=8, num_layers=2, rnn_type="gru", rngs=nnx.Rngs(0)
-    )
-    x = jnp.ones((2, 15, 2))
-    out = model(x)
+    pool = LastPool()
+    x = jnp.arange(24).reshape(2, 4, 3).astype(jnp.float32)
+    out = pool(x)
     assert out.shape == (2, 3)
+    assert jnp.array_equal(out, x[:, -1, :])
 
 
-def test_encoder_output_is_finite():
-    """Encoder output should be finite for reasonable input."""
-    from tsjax import RNNEncoder
+def test_last_pool_unbatched():
+    """LastPool should work on (seq_len, features) without batch dim."""
+    from tsjax import LastPool
 
-    model = RNNEncoder(input_size=1, output_size=4, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
-    x = jnp.ones((2, 20, 1)) * 0.5
-    out = model(x)
+    pool = LastPool()
+    x = jnp.arange(12).reshape(4, 3).astype(jnp.float32)
+    out = pool(x)
+    assert out.shape == (3,)
+    assert jnp.array_equal(out, x[-1, :])
+
+
+def test_rnn_with_last_pool():
+    """RNN + LastPool should produce (batch, output_size)."""
+    from tsjax import RNN, LastPool
+
+    rnn = RNN(input_size=1, output_size=5, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
+    encoder = nnx.Sequential(rnn, LastPool())
+    x = jnp.ones((2, 10, 1))
+    out = encoder(x)
+    assert out.shape == (2, 5)
     assert jnp.all(jnp.isfinite(out))
 
 
-def test_encoder_with_input_norm():
-    """Encoder with Normalize wrapper should apply input normalization."""
-    from tsjax import Denormalize, Normalize, NormalizedModel, RNNEncoder
+def test_rnn_with_last_pool_and_norm():
+    """RNN + LastPool wrapped in NormalizedModel should work end-to-end."""
+    from tsjax import RNN, Denormalize, LastPool, Normalize, NormalizedModel
 
+    rnn = RNN(input_size=2, output_size=3, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
+    encoder = nnx.Sequential(rnn, LastPool())
     model = NormalizedModel(
-        RNNEncoder(input_size=2, output_size=3, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0)),
+        encoder,
         norm_in=Normalize(2, mean=np.array([1.0, 2.0]), std=np.array([3.0, 4.0])),
-        norm_out=Denormalize(3),  # identity
+        norm_out=Denormalize(3),
     )
     x = jnp.ones((2, 10, 2))
     out = model(x)
     assert out.shape == (2, 3)
     assert jnp.all(jnp.isfinite(out))
-
-
-def test_encoder_output_denormalization():
-    """Encoder with y stats should denormalize output (not raw logits)."""
-    from tsjax import Denormalize, Normalize, NormalizedModel, RNNEncoder
-
-    encoder = RNNEncoder(
-        input_size=1, output_size=1, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0)
-    )
-    model_denorm = NormalizedModel(
-        encoder,
-        norm_in=Normalize(1),
-        norm_out=Denormalize(1, mean=np.array([10.0]), std=np.array([5.0])),
-    )
-    model_raw = NormalizedModel(
-        RNNEncoder(input_size=1, output_size=1, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0)),
-        norm_in=Normalize(1),
-        norm_out=Denormalize(1),
-    )
-    x = jnp.ones((2, 10, 1))
-    out_denorm = model_denorm(x)
-    out_raw = model_raw(x)
-    assert out_denorm.shape == (2, 1)
-    assert jnp.all(jnp.isfinite(out_denorm))
-    assert not jnp.allclose(out_denorm, out_raw, atol=1e-3)
-
-
-def test_encoder_invalid_rnn_type():
-    """Unknown rnn_type should raise ValueError."""
-    import pytest
-
-    from tsjax import RNNEncoder
-
-    with pytest.raises(ValueError, match="Unknown rnn_type"):
-        RNNEncoder(
-            input_size=1, output_size=2, hidden_size=8, rnn_type="transformer", rngs=nnx.Rngs(0)
-        )
 
 
 # ---------------------------------------------------------------------------

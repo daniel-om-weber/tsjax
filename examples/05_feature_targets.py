@@ -11,7 +11,17 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from tsjax import Feature, Learner, RNNEncoder, create_grain_dls, normalized_mse
+from tsjax import (
+    Denormalize,
+    Feature,
+    LastPool,
+    Learner,
+    Normalize,
+    NormalizedModel,
+    RNN,
+    create_grain_dls,
+    normalized_mse,
+)
 
 # %%
 _root = Path(__file__).resolve().parent.parent
@@ -48,21 +58,17 @@ print(f"y shape: {batch['y'].shape}")  # (16, 1)       — scalar per window
 
 # %% [markdown]
 # ## Manual Learner construction
-# `RNNEncoder` with y stats from the pipeline — the model denormalizes
+# `RNN + LastPool` with NormalizedModel — the model denormalizes
 # its output to physical units, so we can use `normalized_mse` directly.
 
 # %%
 u_stats = pipeline.stats["u"]
 y_stats = pipeline.stats["y"]
-model = RNNEncoder(
-    input_size=1,
-    output_size=1,
-    hidden_size=64,
-    u_mean=jnp.asarray(u_stats.mean),
-    u_std=jnp.asarray(u_stats.std),
-    y_mean=jnp.asarray(y_stats.mean),
-    y_std=jnp.asarray(y_stats.std),
-    rngs=nnx.Rngs(0),
+rnn = RNN(input_size=1, output_size=1, hidden_size=64, rngs=nnx.Rngs(0))
+model = NormalizedModel(
+    nnx.Sequential(rnn, LastPool()),
+    norm_in=Normalize(1, mean=u_stats.mean, std=u_stats.std),
+    norm_out=Denormalize(1, mean=y_stats.mean, std=y_stats.std),
 )
 
 lrn = Learner(model, pipeline, loss_func=normalized_mse)

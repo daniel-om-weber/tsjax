@@ -45,8 +45,8 @@ class RNN(nnx.Module):
     def __call__(self, u):
         """Forward pass: normalized input -> normalized output.
 
-        u: (batch, seq_len, input_size)
-        returns: (batch, seq_len, output_size)
+        u: (*batch, seq_len, input_size)
+        returns: (*batch, seq_len, output_size)
         """
         x = u
         for rnn in self.rnn_layers:
