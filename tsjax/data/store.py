@@ -1,4 +1,4 @@
-"""Protocol for format-agnostic signal file indices."""
+"""Protocol for format-agnostic signal file stores."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import numpy as np
 
 
 @runtime_checkable
-class SignalIndex(Protocol):
-    """Read-only index over signal files.
+class SignalStore(Protocol):
+    """Read-only store over signal files.
 
     Any object satisfying this protocol can be used with WindowedSource
     and FullSequenceSource. Implementations must be picklable (Grain
@@ -19,7 +19,7 @@ class SignalIndex(Protocol):
 
     @property
     def paths(self) -> Sequence[str]:
-        """Ordered file paths known to this index."""
+        """Ordered file paths known to this store."""
         ...
 
     def get_seq_len(self, path: str, signal: str | None = None) -> int:

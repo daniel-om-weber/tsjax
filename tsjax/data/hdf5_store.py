@@ -1,4 +1,4 @@
-"""HDF5MmapIndex: picklable HDF5 reader using mmap for contiguous datasets."""
+"""HDF5Store: picklable HDF5 reader using mmap for contiguous datasets."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class SignalInfo:
     is_contiguous: bool
 
 
-class HDF5MmapIndex:
+class HDF5Store:
     """Extract mmap offsets from HDF5 files at init, then read via mmap at runtime.
 
     Fully picklable — stores only paths, offsets, shapes, and dtypes.
@@ -50,7 +50,7 @@ class HDF5MmapIndex:
 
     @property
     def paths(self) -> list[str]:
-        """Ordered file paths known to this index."""
+        """Ordered file paths known to this store."""
         return list(self.entries.keys())
 
     def read_slice(self, path: str, signal: str, l_slc: int, r_slc: int) -> np.ndarray:
@@ -82,3 +82,14 @@ class HDF5MmapIndex:
         if signal is None:
             signal = self.signal_names[0]
         return self.entries[str(path)][signal].shape[0]
+
+
+def read_hdf5_attr(path: str, key: str, dtype: type = np.float32) -> np.floating:
+    """Read a single root-level attribute from an HDF5 file.
+
+    Useful for retrieving per-file metadata such as sampling rate::
+
+        fs = read_hdf5_attr("data.hdf5", "sampling_rate")
+    """
+    with h5py.File(str(path), "r") as f:
+        return dtype(f.attrs[key])

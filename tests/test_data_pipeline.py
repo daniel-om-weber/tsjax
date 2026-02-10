@@ -37,12 +37,12 @@ def test_norm_stats_match_manual_computation(dataset_path):
     np.testing.assert_allclose(std[0], expected_std, atol=1e-5)
 
 
-def test_hdf5_index_reads_match_h5py(dataset_path):
-    """HDF5MmapIndex slicing should match direct h5py reads."""
-    from tsjax import HDF5MmapIndex
+def test_hdf5_store_reads_match_h5py(dataset_path):
+    """HDF5Store slicing should match direct h5py reads."""
+    from tsjax import HDF5Store
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    index = HDF5MmapIndex(train_files, ["u", "y"])
+    index = HDF5Store(train_files, ["u", "y"])
 
     path = train_files[0]
     with h5py.File(path, "r") as f:
@@ -79,11 +79,11 @@ def test_test_split_full_sequences(pipeline):
 
 def test_window_count_matches_formula(dataset_path):
     """Window count should match: (seq_len - win_sz) // stp_sz + 1."""
-    from tsjax import HDF5MmapIndex
+    from tsjax import HDF5Store
     from tsjax.data import WindowedSource
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
-    index = HDF5MmapIndex(train_files, ["u", "y"])
+    index = HDF5Store(train_files, ["u", "y"])
     source = WindowedSource(index, win_sz=20, stp_sz=10, input_signals=["u"], output_signals=["y"])
 
     # Verify against formula

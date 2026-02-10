@@ -1545,6 +1545,8 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "optax" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "tqdm" },
 ]
 
@@ -1564,6 +1566,7 @@ requires-dist = [
     { name = "optax", specifier = ">=0.2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0" },
     { name = "ruff", marker = "extra == 'test'", specifier = ">=0.4" },
+    { name = "scipy", specifier = ">=1.10" },
     { name = "tqdm", specifier = ">=4.60" },
 ]
 provides-extras = ["test"]
