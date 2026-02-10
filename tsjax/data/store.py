@@ -12,8 +12,8 @@ import numpy as np
 class SignalStore(Protocol):
     """Read-only store over signal files.
 
-    Any object satisfying this protocol can be used with WindowedSource
-    and FullSequenceSource. Implementations must be picklable (Grain
+    Any object satisfying this protocol can be used with DataSource
+    and SequenceReader. Implementations must be picklable (Grain
     multiprocessing requirement).
     """
 

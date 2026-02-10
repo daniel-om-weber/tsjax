@@ -3,18 +3,21 @@
 __version__ = "0.1.0"
 
 from .data import IDENTITY_STATS as IDENTITY_STATS
-from .data import ComposedSource as ComposedSource
+from .data import DataSource as DataSource
 from .data import Feature as Feature
 from .data import FeatureReader as FeatureReader
 from .data import GrainPipeline as GrainPipeline
 from .data import HDF5Store as HDF5Store
 from .data import NormStats as NormStats
+from .data import Reader as Reader
 from .data import ResampledStore as ResampledStore
 from .data import ScalarAttr as ScalarAttr
 from .data import ScalarAttrReader as ScalarAttrReader
+from .data import SequenceReader as SequenceReader
 from .data import SignalInfo as SignalInfo
 from .data import SignalStore as SignalStore
 from .data import compute_norm_stats as compute_norm_stats
+from .data import compute_norm_stats_from_index as compute_norm_stats_from_index
 from .data import create_grain_dls as create_grain_dls
 from .data import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .data import create_simulation_dls as create_simulation_dls

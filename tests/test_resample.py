@@ -11,13 +11,7 @@ import pytest
 
 from tsjax.data.hdf5_store import HDF5Store, read_hdf5_attr
 from tsjax.data.resample import ResampledStore, resample_fft, resample_interp
-from tsjax.data.sources import (
-    ComposedSource,
-    FullSeqReader,
-    WindowedReader,
-    _FileIndex,
-    _WindowIndex,
-)
+from tsjax.data.sources import DataSource, SequenceReader
 from tsjax.data.stats import compute_norm_stats_from_index
 
 DATASET = Path(__file__).parent.parent / "test_data" / "WienerHammerstein"
@@ -172,15 +166,14 @@ class TestResampledStore:
         assert result.shape == (10, 1)
 
     def test_with_windowed_source(self, train_store):
-        """ComposedSource with _WindowIndex should work with ResampledStore."""
+        """DataSource with windowing should work with ResampledStore."""
         factor = 0.5
         rs = ResampledStore(train_store, factor=factor)
         win_sz = 20
         stp_sz = 10
 
-        index = _WindowIndex(rs, win_sz, stp_sz, ref_signal="u")
-        readers = {"u": WindowedReader(rs, ["u"]), "y": WindowedReader(rs, ["y"])}
-        source = ComposedSource(index, readers)
+        readers = {"u": SequenceReader(rs, ["u"]), "y": SequenceReader(rs, ["y"])}
+        source = DataSource(rs, readers, win_sz=win_sz, stp_sz=stp_sz)
 
         # Verify window count uses resampled lengths
         path = rs.paths[0]
@@ -195,9 +188,8 @@ class TestResampledStore:
 
     def test_with_full_sequence_source(self, train_store):
         rs = ResampledStore(train_store, factor=0.5)
-        index = _FileIndex(list(rs.paths))
-        readers = {"u": FullSeqReader(rs, ["u"]), "y": FullSeqReader(rs, ["y"])}
-        source = ComposedSource(index, readers)
+        readers = {"u": SequenceReader(rs, ["u"]), "y": SequenceReader(rs, ["y"])}
+        source = DataSource(rs, readers)
         item = source[0]
         expected_len = rs.get_seq_len(rs.paths[0])
         assert item["u"].shape == (expected_len, 1)

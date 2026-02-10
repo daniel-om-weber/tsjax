@@ -150,7 +150,7 @@ def compute_stats_with_transform(
 ) -> NormStats:
     """Compute normalization stats for a key after applying a transform.
 
-    Iterates the entire *source* (typically the training ``ComposedSource``),
+    Iterates the entire *source* (typically the training ``DataSource``),
     applies *transform* to each sample's *key* value, and accumulates
     per-channel mean/std on the transformed output.
     """

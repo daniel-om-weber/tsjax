@@ -12,16 +12,13 @@ from .hdf5_store import HDF5Store
 from .item_transforms import Transform, _apply_transforms
 from .resample import ResampledStore, ResampleFn, resample_interp
 from .sources import (
-    ComposedSource,
+    DataSource,
     Feature,
     FeatureReader,
-    FullSeqReader,
     ReaderSpec,
     ScalarAttr,
     ScalarAttrReader,
-    WindowedReader,
-    _FileIndex,
-    _WindowIndex,
+    SequenceReader,
 )
 from .stats import (
     NormStats,
@@ -36,15 +33,125 @@ from .stats import (
 class GrainPipeline:
     """Container for train/valid/test Grain datasets with norm stats."""
 
-    train: grain.MapDataset
+    train: grain.MapDataset  # Batched (+ shuffled/transformed) datasets for training loop
     valid: grain.MapDataset
     test: grain.MapDataset
     stats: dict[str, NormStats]
     input_keys: tuple[str, ...]
     target_keys: tuple[str, ...]
-    train_source: ComposedSource
-    valid_source: ComposedSource
-    test_source: ComposedSource
+    train_source: DataSource  # Raw sources — carry signal metadata for plotting
+    valid_source: DataSource
+    test_source: DataSource
+
+    @classmethod
+    def from_sources(
+        cls,
+        train: DataSource,
+        valid: DataSource,
+        test: DataSource,
+        *,
+        input_keys: tuple[str, ...],
+        target_keys: tuple[str, ...],
+        bs: int = 64,
+        seed: int = 42,
+        stats: dict[str, NormStats] | None = None,
+        transforms: dict[str, Transform] | None = None,
+    ) -> GrainPipeline:
+        """Build a GrainPipeline from pre-constructed DataSources.
+
+        Parameters
+        ----------
+        train, valid, test : DataSource instances (windowed or full-seq).
+        input_keys : Batch key names that are model inputs.
+        target_keys : Batch key names that are model targets.
+        bs : Batch size.
+        seed : Shuffle seed for training data.
+        stats : Pre-computed stats dict.  If None, stats are auto-computed
+            by dispatching on reader type (SequenceReader, ScalarAttrReader, etc.).
+        transforms : Per-key transforms applied per-sample before batching.
+        """
+        all_keys = tuple(input_keys) + tuple(target_keys)
+        user_stats = stats or {}
+
+        computed: dict[str, NormStats] = {}
+        for key in all_keys:
+            if key in user_stats:
+                computed[key] = user_stats[key]
+                continue
+
+            reader = train.readers.get(key)
+            if reader is None:
+                raise ValueError(f"No reader for key {key!r} in train source")
+
+            if transforms and key in transforms:
+                computed[key] = compute_stats_with_transform(train, key, transforms[key])
+            elif isinstance(reader, SequenceReader):
+                computed[key] = compute_norm_stats_from_index(reader.store, reader.signals)
+            elif isinstance(reader, ScalarAttrReader):
+                # Re-read from cache — extract paths from the reader
+                import numpy as np
+
+                vals = list(reader._cache.values())
+                arr = np.stack(vals)
+                means = arr.mean(axis=0)
+                stds = np.maximum(arr.std(axis=0), 1e-8)
+                computed[key] = NormStats(
+                    mean=means.astype(np.float32), std=stds.astype(np.float32)
+                )
+            elif isinstance(reader, FeatureReader):
+                import numpy as np
+
+                sums = None
+                squares = None
+                count = 0
+                for i in range(len(train)):
+                    sample = train[i]
+                    val = sample[key].astype(np.float32)
+                    if sums is None:
+                        sums = np.zeros_like(val, dtype=np.float64)
+                        squares = np.zeros_like(val, dtype=np.float64)
+                    sums += val
+                    squares += val**2
+                    count += 1
+                means = sums / count
+                stds = np.sqrt((squares / count) - (means**2))
+                stds = np.maximum(stds, 1e-8)
+                computed[key] = NormStats(
+                    mean=means.astype(np.float32), std=stds.astype(np.float32)
+                )
+            else:
+                raise ValueError(
+                    f"Cannot auto-compute stats for key {key!r} "
+                    f"(reader type {type(reader).__name__}). "
+                    f"Pass explicit stats[{key!r}]."
+                )
+
+        # Build Grain pipelines
+        train_ds = grain.MapDataset.source(train)
+        valid_ds = grain.MapDataset.source(valid)
+        test_ds = grain.MapDataset.source(test)
+
+        if transforms:
+            xform_fn = _apply_transforms(transforms)
+            train_ds = train_ds.map(xform_fn)
+            valid_ds = valid_ds.map(xform_fn)
+            test_ds = test_ds.map(xform_fn)
+
+        train_ds = train_ds.shuffle(seed=seed).batch(bs, drop_remainder=True)
+        valid_ds = valid_ds.batch(bs, drop_remainder=False)
+        test_ds = test_ds.batch(1, drop_remainder=False)
+
+        return cls(
+            train=train_ds,
+            valid=valid_ds,
+            test=test_ds,
+            stats=computed,
+            input_keys=tuple(input_keys),
+            target_keys=tuple(target_keys),
+            train_source=train,
+            valid_source=valid,
+            test_source=test,
+        )
 
 
 def _get_hdf_files(path: Path) -> list[str]:
@@ -83,16 +190,12 @@ def _build_readers(
     specs: dict[str, ReaderSpec],
     store,
     files: list[str],
-    *,
-    windowed: bool,
-) -> dict[str, WindowedReader | FullSeqReader | ScalarAttrReader | FeatureReader]:
+) -> dict[str, SequenceReader | ScalarAttrReader | FeatureReader]:
     """Create reader objects for each spec, for one split."""
     readers = {}
     for key, spec in specs.items():
         if isinstance(spec, list):
-            readers[key] = WindowedReader(store, list(spec)) if windowed else FullSeqReader(
-                store, list(spec)
-            )
+            readers[key] = SequenceReader(store, list(spec))
         elif isinstance(spec, ScalarAttr):
             readers[key] = ScalarAttrReader(files, spec.attrs)
         elif isinstance(spec, Feature):
@@ -246,38 +349,27 @@ def create_grain_dls(
 
     is_resampled = isinstance(train_store, ResampledStore)
 
-    # Build composed sources (before stats so transform stats can iterate train_source)
+    # Build readers and DataSources
+    train_readers = _build_readers(all_specs, train_store, train_files)
+    valid_readers = _build_readers(all_specs, valid_store, valid_files)
+    test_readers = _build_readers(all_specs, test_store, test_files)
+
     if needs_win:
-        # Find ref_signal from the first windowed spec
-        ref_signal = None
-        for spec in all_specs.values():
-            if isinstance(spec, list):
-                ref_signal = spec[0]
-                break
-            elif isinstance(spec, Feature):
-                ref_signal = spec.signals[0]
-                break
-
-        train_index = _WindowIndex(train_store, win_sz, stp_sz, ref_signal)
-        valid_index = _WindowIndex(valid_store, win_sz, valid_stp_sz, ref_signal)
-        test_index = _FileIndex(list(test_store.paths))
-
-        train_readers = _build_readers(all_specs, train_store, train_files, windowed=True)
-        valid_readers = _build_readers(all_specs, valid_store, valid_files, windowed=True)
-        test_readers = _build_readers(all_specs, test_store, test_files, windowed=False)
+        train_source = DataSource(train_store, train_readers, win_sz=win_sz, stp_sz=stp_sz)
+        valid_source = DataSource(
+            valid_store, valid_readers, win_sz=win_sz, stp_sz=valid_stp_sz
+        )
+        test_source = DataSource(test_store, test_readers)  # full sequence
     else:
-        # All scalar — file-level iteration
-        train_index = _FileIndex(train_files)
-        valid_index = _FileIndex(valid_files)
-        test_index = _FileIndex(test_files)
-
-        train_readers = _build_readers(all_specs, train_store, train_files, windowed=False)
-        valid_readers = _build_readers(all_specs, valid_store, valid_files, windowed=False)
-        test_readers = _build_readers(all_specs, test_store, test_files, windowed=False)
-
-    train_source = ComposedSource(train_index, train_readers)
-    valid_source = ComposedSource(valid_index, valid_readers)
-    test_source = ComposedSource(test_index, test_readers)
+        train_source = DataSource(train_store, train_readers) if train_store else DataSource(
+            _DummyStore(train_files), train_readers
+        )
+        valid_source = DataSource(valid_store, valid_readers) if valid_store else DataSource(
+            _DummyStore(valid_files), valid_readers
+        )
+        test_source = DataSource(test_store, test_readers) if test_store else DataSource(
+            _DummyStore(test_files), test_readers
+        )
 
     # Compute normalization stats from training data — one NormStats per key.
     # For transformed keys, stats are computed on the transformed output.
@@ -319,6 +411,23 @@ def create_grain_dls(
         valid_source=valid_source,
         test_source=test_source,
     )
+
+
+class _DummyStore:
+    """Minimal store for pure-scalar pipelines (no signal datasets)."""
+
+    def __init__(self, files: list[str]):
+        self._paths = list(files)
+
+    @property
+    def paths(self):
+        return self._paths
+
+    def get_seq_len(self, path, signal=None):
+        return 0
+
+    def read_signals(self, path, signals, l_slc, r_slc):
+        raise NotImplementedError("No signal datasets in a pure-scalar pipeline")
 
 
 def create_simulation_dls(

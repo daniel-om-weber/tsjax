@@ -5,6 +5,7 @@ from __future__ import annotations
 import bisect
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 import h5py
 import numpy as np
@@ -34,7 +35,7 @@ class Feature:
 ReaderSpec = list[str] | ScalarAttr | Feature
 
 # ---------------------------------------------------------------------------
-# Index classes — iteration strategy
+# Index classes — iteration strategy (private, used inside DataSource)
 # ---------------------------------------------------------------------------
 
 
@@ -89,31 +90,36 @@ class _FileIndex:
 
 
 # ---------------------------------------------------------------------------
-# Reader classes — how to read one data stream
+# Reader Protocol + concrete readers
 # ---------------------------------------------------------------------------
 
 
-class WindowedReader:
-    """Read a slice of signals -> (win_sz, n_ch)."""
+@runtime_checkable
+class Reader(Protocol):
+    """Protocol for objects that read one data stream from a source."""
+
+    signals: list[str]
+
+    def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray: ...
+
+
+class SequenceReader:
+    """Read signals from a store — windowed slice or full sequence.
+
+    When called with ``l_slc < r_slc``, reads the specified window.
+    When called with ``l_slc >= r_slc`` (the _FileIndex convention),
+    reads the full sequence.
+    """
 
     def __init__(self, store: SignalStore, signals: list[str]):
         self.store = store
         self.signals = signals
 
     def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray:
+        if l_slc >= r_slc:  # _FileIndex convention → full sequence
+            r_slc = self.store.get_seq_len(path, self.signals[0])
+            l_slc = 0
         return self.store.read_signals(path, self.signals, l_slc, r_slc)
-
-
-class FullSeqReader:
-    """Read entire sequence -> (seq_len, n_ch).  Ignores l_slc/r_slc."""
-
-    def __init__(self, store: SignalStore, signals: list[str]):
-        self.store = store
-        self.signals = signals
-
-    def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray:
-        seq_len = self.store.get_seq_len(path, self.signals[0])
-        return self.store.read_signals(path, self.signals, 0, seq_len)
 
 
 class ScalarAttrReader:
@@ -140,54 +146,84 @@ class FeatureReader:
         self.fn = fn
 
     def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray:
+        if l_slc >= r_slc:  # full sequence
+            r_slc = self.store.get_seq_len(path, self.signals[0])
+            l_slc = 0
         data = self.store.read_signals(path, self.signals, l_slc, r_slc)
         return self.fn(data).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
-# Composed source
+# DataSource — Grain-compatible source combining an index with named readers
 # ---------------------------------------------------------------------------
 
 
-class ComposedSource:
-    """Grain-compatible source combining an index with named readers."""
+class DataSource:
+    """Grain-compatible time series source.
+
+    ``win_sz=None`` → full sequence per file (one sample per file).
+    ``win_sz=int``  → sliding windows with ``stp_sz`` stride.
+
+    Parameters
+    ----------
+    store : SignalStore used for index construction (paths, seq_len).
+        Readers carry their own store references.
+    readers : dict mapping batch key names to Reader objects.
+    win_sz : Window size, or None for full-sequence mode.
+    stp_sz : Step size for windowed iteration.
+    """
 
     def __init__(
         self,
-        index: _WindowIndex | _FileIndex,
-        readers: dict[str, WindowedReader | FullSeqReader | ScalarAttrReader | FeatureReader],
+        store: SignalStore,
+        readers: dict[str, Reader],
+        *,
+        win_sz: int | None = None,
+        stp_sz: int = 1,
     ):
-        self.index = index
-        self.readers = readers
+        self.store = store
+        self.readers = dict(readers)
+        if win_sz is not None:
+            ref = self._find_ref_signal()
+            self._index = _WindowIndex(store, win_sz, stp_sz, ref)
+        else:
+            self._index = _FileIndex(list(store.paths))
         self._validate_lengths()
 
-    def _validate_lengths(self):
-        """Check that all windowed readers agree on sequence lengths per file.
+    def _find_ref_signal(self) -> str:
+        """Auto-detect reference signal from the first SequenceReader."""
+        for reader in self.readers.values():
+            if isinstance(reader, (SequenceReader, FeatureReader)):
+                return reader.signals[0]
+        raise ValueError("No SequenceReader or FeatureReader found — cannot determine ref_signal")
 
-        Compares every WindowedReader/FullSeqReader against the index's
+    def _validate_lengths(self):
+        """Check that all sequence readers agree on sequence lengths per file.
+
+        Compares every SequenceReader/FeatureReader against the index's
         ref_signal length for each file. Raises ValueError at construction
         time if any mismatch is found.
         """
-        if not isinstance(self.index, _WindowIndex):
+        if not isinstance(self._index, _WindowIndex):
             return
-        for path in self.index.store.paths:
-            ref_len = self.index.store.get_seq_len(path, self.index.ref_signal)
+        for path in self._index.store.paths:
+            ref_len = self._index.store.get_seq_len(path, self._index.ref_signal)
             for key, reader in self.readers.items():
-                if not isinstance(reader, (WindowedReader, FullSeqReader)):
+                if not isinstance(reader, (SequenceReader, FeatureReader)):
                     continue
                 for sig in reader.signals:
                     sig_len = reader.store.get_seq_len(path, sig)
                     if sig_len != ref_len:
                         raise ValueError(
                             f"Signal length mismatch in {path!r}: "
-                            f"ref signal {self.index.ref_signal!r} has {ref_len} samples, "
+                            f"ref signal {self._index.ref_signal!r} has {ref_len} samples, "
                             f"but reader {key!r} signal {sig!r} has {sig_len}. "
                             f"All windowed signals must have the same length."
                         )
 
     def __len__(self) -> int:
-        return len(self.index)
+        return len(self._index)
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
-        path, l_slc, r_slc = self.index.resolve(idx)
+        path, l_slc, r_slc = self._index.resolve(idx)
         return {key: reader(path, l_slc, r_slc) for key, reader in self.readers.items()}

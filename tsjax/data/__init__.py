@@ -13,13 +13,13 @@ from .pipeline import create_simulation_dls as create_simulation_dls
 from .resample import ResampledStore as ResampledStore
 from .resample import resample_fft as resample_fft
 from .resample import resample_interp as resample_interp
-from .sources import ComposedSource as ComposedSource
+from .sources import DataSource as DataSource
 from .sources import Feature as Feature
 from .sources import FeatureReader as FeatureReader
-from .sources import FullSeqReader as FullSeqReader
+from .sources import Reader as Reader
 from .sources import ScalarAttr as ScalarAttr
 from .sources import ScalarAttrReader as ScalarAttrReader
-from .sources import WindowedReader as WindowedReader
+from .sources import SequenceReader as SequenceReader
 from .stats import IDENTITY_STATS as IDENTITY_STATS
 from .stats import NormStats as NormStats
 from .stats import compute_norm_stats as compute_norm_stats
