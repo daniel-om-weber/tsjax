@@ -66,5 +66,5 @@ print(f"u std:  {pipeline.stats['u'].std}")
 # ## Train with transformed inputs
 
 # %%
-lrn = RNNLearner(pipeline, rnn_type="lstm", hidden_size=64, n_skip=10, metrics=[rmse])
+lrn = RNNLearner(pipeline, hidden_size=64, n_skip=10, metrics=[rmse])
 lrn.fit_flat_cos(n_epoch=1, lr=1e-3)

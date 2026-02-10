@@ -68,7 +68,7 @@ class TestLearnerIntegration:
     def test_show_batch(self, pipeline):
         from tsjax import RNNLearner
 
-        lrn = RNNLearner(pipeline, rnn_type="gru", hidden_size=8, seed=42)
+        lrn = RNNLearner(pipeline, hidden_size=8, seed=42)
         fig, axes = lrn.show_batch(n=2, split="valid")
         assert axes.shape == (2, 2)  # 2 signal rows, 2 samples
         plt.close(fig)
@@ -76,7 +76,7 @@ class TestLearnerIntegration:
     def test_show_results(self, pipeline):
         from tsjax import RNNLearner
 
-        lrn = RNNLearner(pipeline, rnn_type="gru", hidden_size=8, seed=42)
+        lrn = RNNLearner(pipeline, hidden_size=8, seed=42)
         fig, axes = lrn.show_results(n=2, split="valid")
         assert axes.shape == (2, 2)  # u row + y row, 2 samples
         plt.close(fig)
@@ -84,7 +84,7 @@ class TestLearnerIntegration:
     def test_show_results_test_split(self, pipeline):
         from tsjax import RNNLearner
 
-        lrn = RNNLearner(pipeline, rnn_type="gru", hidden_size=8, seed=42)
+        lrn = RNNLearner(pipeline, hidden_size=8, seed=42)
         fig, axes = lrn.show_results(n=4, split="test")
         assert axes.shape[1] == 1  # test has bs=1
         plt.close(fig)
@@ -193,7 +193,7 @@ class TestLearnerCallbacks:
         from tsjax import RNN, Learner
 
         model = RNN(
-            input_size=1, output_size=1, hidden_size=8, rnn_type="gru",
+            input_size=1, output_size=1, hidden_size=8,
             rngs=nnx.Rngs(0),
         )
         called = {}
@@ -214,7 +214,7 @@ class TestLearnerCallbacks:
         from tsjax import RNN, Learner
 
         model = RNN(
-            input_size=1, output_size=1, hidden_size=8, rnn_type="gru",
+            input_size=1, output_size=1, hidden_size=8,
             rngs=nnx.Rngs(0),
         )
         called = {}

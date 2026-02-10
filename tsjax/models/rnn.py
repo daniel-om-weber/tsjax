@@ -18,24 +18,15 @@ class RNN(nnx.Module):
         output_size: int,
         hidden_size: int = 100,
         num_layers: int = 1,
-        rnn_type: str = "gru",
+        cell_type: type = nnx.GRUCell,
         *,
         rngs: nnx.Rngs,
     ):
-        # Select cell type
-        match rnn_type.lower():
-            case "gru":
-                CellType = nnx.GRUCell
-            case "lstm":
-                CellType = nnx.OptimizedLSTMCell
-            case _:
-                raise ValueError(f"Unknown rnn_type: {rnn_type!r}. Use 'gru' or 'lstm'.")
-
         # Build multi-layer RNN
         layers = []
         for i in range(num_layers):
             in_feat = input_size if i == 0 else hidden_size
-            cell = CellType(in_features=in_feat, hidden_features=hidden_size, rngs=rngs)
+            cell = cell_type(in_features=in_feat, hidden_features=hidden_size, rngs=rngs)
             layers.append(nnx.RNN(cell))
         self.rnn_layers = nnx.List(layers)
 
@@ -52,6 +43,3 @@ class RNN(nnx.Module):
         for rnn in self.rnn_layers:
             x = rnn(x)
         return self.linear(x)
-
-
-GRU = RNN

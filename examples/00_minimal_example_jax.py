@@ -33,7 +33,7 @@ pipeline = create_simulation_dls(
 )
 
 # %%
-lrn = RNNLearner(pipeline, rnn_type='lstm', hidden_size=64, n_skip=10, metrics=[rmse])
+lrn = RNNLearner(pipeline, hidden_size=64, n_skip=10, metrics=[rmse])
 lrn.fit_flat_cos(n_epoch=1, lr=1e-3)
 
 # %% [markdown]
@@ -88,7 +88,7 @@ pipeline2 = GrainPipeline(
 )
 
 # %%
-lrn2 = RNNLearner(pipeline2, rnn_type="lstm", hidden_size=64, n_skip=10)
+lrn2 = RNNLearner(pipeline2, hidden_size=64, n_skip=10)
 lrn2.fit(n_epoch=1, lr=1e-3)
 
 # %% [markdown]
@@ -126,7 +126,7 @@ pipeline3 = GrainPipeline(
 )
 
 # %%
-lrn3 = RNNLearner(pipeline3, rnn_type="lstm", hidden_size=64, n_skip=10)
+lrn3 = RNNLearner(pipeline3, hidden_size=64, n_skip=10)
 lrn3.fit(n_epoch=1, lr=1e-3)
 
 # %% [markdown]
@@ -155,5 +155,5 @@ pipeline4 = GrainPipeline(
 )
 
 # %%
-lrn4 = RNNLearner(pipeline4, rnn_type="lstm", hidden_size=64, n_skip=10)
+lrn4 = RNNLearner(pipeline4, hidden_size=64, n_skip=10)
 lrn4.fit(n_epoch=1, lr=1e-3)

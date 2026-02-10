@@ -150,7 +150,7 @@ From raw files to trained model — what each component does, how they connect, 
  │  └── returns model  │ │     → scalar        │ │  Swappable: any fn     │
  │                     │ │                     │ │    with same signature │
  │  Swappable:         │ │  Regression losses  │ │  Future: NRMSE, VAF,   │
- │  rnn_type=gru|lstm  │ │  normalize both     │ │    cosine similarity   │
+ │  cell_type=GRUCell  │ │  normalize both     │ │    cosine similarity   │
  │  hidden_size        │ │  pred and target    │ └────────────────────────┘
  │  num_layers         │ │  per-channel        │
  │                     │ │                     │

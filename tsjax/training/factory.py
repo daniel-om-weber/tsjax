@@ -16,7 +16,7 @@ from .learner import Learner
 
 def create_rnn(
     pipeline: GrainPipeline,
-    rnn_type: str = "gru",
+    cell_type: type = nnx.GRUCell,
     hidden_size: int = 100,
     num_layers: int = 1,
     seed: int = 0,
@@ -32,7 +32,7 @@ def create_rnn(
         output_size=output_size,
         hidden_size=hidden_size,
         num_layers=num_layers,
-        rnn_type=rnn_type,
+        cell_type=cell_type,
         rngs=nnx.Rngs(seed),
     )
     return NormalizedModel(
@@ -44,7 +44,7 @@ def create_rnn(
 
 def RNNLearner(
     pipeline: GrainPipeline,
-    rnn_type: str = "lstm",
+    cell_type: type = nnx.OptimizedLSTMCell,
     hidden_size: int = 100,
     num_layers: int = 1,
     loss_func=normalized_mae,
@@ -54,13 +54,13 @@ def RNNLearner(
 ) -> Learner:
     """Create Learner with RNN model (mirrors TSFast's RNNLearner)."""
     model = create_rnn(
-        pipeline, rnn_type=rnn_type, hidden_size=hidden_size, num_layers=num_layers, seed=seed
+        pipeline, cell_type=cell_type, hidden_size=hidden_size, num_layers=num_layers, seed=seed
     )
     return Learner(model, pipeline, loss_func=loss_func, n_skip=n_skip, metrics=metrics)
 
 
-create_gru = partial(create_rnn, rnn_type="gru")
-GRULearner = partial(RNNLearner, rnn_type="gru")
+create_gru = partial(create_rnn, cell_type=nnx.GRUCell)
+GRULearner = partial(RNNLearner, cell_type=nnx.GRUCell)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ def _classifier_show_results(*, target, pred, n, figsize, batch, source, pipelin
 def ClassifierLearner(
     pipeline: GrainPipeline,
     n_classes: int,
-    rnn_type: str = "gru",
+    cell_type: type = nnx.GRUCell,
     hidden_size: int = 100,
     num_layers: int = 1,
     n_skip: int = 0,
@@ -107,7 +107,7 @@ def ClassifierLearner(
         output_size=n_classes,
         hidden_size=hidden_size,
         num_layers=num_layers,
-        rnn_type=rnn_type,
+        cell_type=cell_type,
         rngs=nnx.Rngs(seed),
     )
     encoder = nnx.Sequential(rnn, LastPool())

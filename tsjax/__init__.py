@@ -27,7 +27,6 @@ from .losses import cross_entropy_loss as cross_entropy_loss
 from .losses import normalized_mae as normalized_mae
 from .losses import normalized_mse as normalized_mse
 from .losses import rmse as rmse
-from .models import GRU as GRU
 from .models import MLP as MLP
 from .models import RNN as RNN
 from .models import Denormalize as Denormalize

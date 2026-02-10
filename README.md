@@ -25,7 +25,7 @@ uv pip install -e ".[test]"
 ## Quick Start
 
 ```python
-from tsjax import create_grain_dls, RNNLearner, rmse
+from tsjax import create_grain_dls, GRULearner, rmse
 
 pipeline = create_grain_dls(
     u=['u'], y=['y'],
@@ -33,7 +33,7 @@ pipeline = create_grain_dls(
     bs=16, win_sz=500, stp_sz=10,
 )
 
-lrn = RNNLearner(pipeline, rnn_type='gru', hidden_size=64, metrics=[rmse])
+lrn = GRULearner(pipeline, hidden_size=64, metrics=[rmse])
 lrn.fit_flat_cos(n_epoch=10, lr=1e-3)
 ```
 

@@ -91,7 +91,7 @@ def test_gru_output_shape():
     """GRU forward pass should produce (batch, seq_len, output_size)."""
     from tsjax import RNN
 
-    model = RNN(input_size=1, output_size=1, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
+    model = RNN(input_size=1, output_size=1, hidden_size=8, rngs=nnx.Rngs(0))
     x = jnp.ones((2, 10, 1))
     out = model(x)
     assert out.shape == (2, 10, 1)
@@ -101,7 +101,10 @@ def test_lstm_output_shape():
     """LSTM variant should produce the same shape."""
     from tsjax import RNN
 
-    model = RNN(input_size=2, output_size=3, hidden_size=8, rnn_type="lstm", rngs=nnx.Rngs(0))
+    model = RNN(
+        input_size=2, output_size=3, hidden_size=8,
+        cell_type=nnx.OptimizedLSTMCell, rngs=nnx.Rngs(0),
+    )
     x = jnp.ones((2, 10, 2))
     out = model(x)
     assert out.shape == (2, 10, 3)
@@ -112,7 +115,7 @@ def test_multilayer_rnn():
     from tsjax import RNN
 
     model = RNN(
-        input_size=1, output_size=1, hidden_size=8, num_layers=2, rnn_type="gru", rngs=nnx.Rngs(0)
+        input_size=1, output_size=1, hidden_size=8, num_layers=2, rngs=nnx.Rngs(0)
     )
     x = jnp.ones((2, 20, 1))
     out = model(x)
@@ -123,7 +126,7 @@ def test_model_output_is_finite():
     """Model output should be finite for reasonable input."""
     from tsjax import RNN
 
-    model = RNN(input_size=1, output_size=1, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
+    model = RNN(input_size=1, output_size=1, hidden_size=8, rngs=nnx.Rngs(0))
     x = jnp.ones((2, 20, 1)) * 0.5
     out = model(x)
     assert jnp.all(jnp.isfinite(out))
@@ -134,7 +137,7 @@ def test_model_with_norm_wrapper():
     from tsjax import RNN, Denormalize, Normalize, NormalizedModel
 
     model = NormalizedModel(
-        RNN(input_size=1, output_size=1, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0)),
+        RNN(input_size=1, output_size=1, hidden_size=8, rngs=nnx.Rngs(0)),
         norm_in=Normalize(1, mean=np.array([1.0]), std=np.array([2.0])),
         norm_out=Denormalize(1, mean=np.array([3.0]), std=np.array([4.0])),
     )
@@ -142,16 +145,6 @@ def test_model_with_norm_wrapper():
     out = model(x)
     assert out.shape == (2, 20, 1)
     assert jnp.all(jnp.isfinite(out))
-
-
-def test_invalid_rnn_type():
-    """Unknown rnn_type should raise ValueError."""
-    import pytest
-
-    from tsjax import RNN
-
-    with pytest.raises(ValueError, match="Unknown rnn_type"):
-        RNN(input_size=1, output_size=1, hidden_size=8, rnn_type="transformer", rngs=nnx.Rngs(0))
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +178,7 @@ def test_rnn_with_last_pool():
     """RNN + LastPool should produce (batch, output_size)."""
     from tsjax import RNN, LastPool
 
-    rnn = RNN(input_size=1, output_size=5, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
+    rnn = RNN(input_size=1, output_size=5, hidden_size=8, rngs=nnx.Rngs(0))
     encoder = nnx.Sequential(rnn, LastPool())
     x = jnp.ones((2, 10, 1))
     out = encoder(x)
@@ -197,7 +190,7 @@ def test_rnn_with_last_pool_and_norm():
     """RNN + LastPool wrapped in NormalizedModel should work end-to-end."""
     from tsjax import RNN, Denormalize, LastPool, Normalize, NormalizedModel
 
-    rnn = RNN(input_size=2, output_size=3, hidden_size=8, rnn_type="gru", rngs=nnx.Rngs(0))
+    rnn = RNN(input_size=2, output_size=3, hidden_size=8, rngs=nnx.Rngs(0))
     encoder = nnx.Sequential(rnn, LastPool())
     model = NormalizedModel(
         encoder,
