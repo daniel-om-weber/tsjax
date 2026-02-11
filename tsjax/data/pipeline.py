@@ -20,11 +20,9 @@ from .resample import ResampledStore, ResampleFn, resample_interp
 from .sources import (
     DataSource,
     Feature,
-    FeatureReader,
     ReaderSpec,
     ScalarAttr,
-    ScalarAttrReader,
-    SequenceReader,
+    Signals,
 )
 from .stats import (
     NormStats,
@@ -146,42 +144,11 @@ def _get_split_files(dataset: Path | str, split: str) -> list[str]:
     return _get_hdf_files(Path(dataset) / split)
 
 
-def _needs_windowing(spec: ReaderSpec) -> bool:
-    """Return True if the spec requires windowed iteration."""
-    return isinstance(spec, (list, Feature))
-
-
-def _collect_signal_names(specs: dict[str, ReaderSpec]) -> list[str]:
-    """Collect unique signal names from all specs that read from the store."""
-    signals: list[str] = []
-    for spec in specs.values():
-        if isinstance(spec, list):
-            for s in spec:
-                if s not in signals:
-                    signals.append(s)
-        elif isinstance(spec, Feature):
-            for s in spec.signals:
-                if s not in signals:
-                    signals.append(s)
-        # ScalarAttr reads HDF5 attrs, not datasets — no signals needed
-    return signals
-
-
-def _build_readers(
+def _normalize_specs(
     specs: dict[str, ReaderSpec],
-    store,
-    files: list[str],
-) -> dict[str, SequenceReader | ScalarAttrReader | FeatureReader]:
-    """Create reader objects for each spec, for one split."""
-    readers = {}
-    for key, spec in specs.items():
-        if isinstance(spec, list):
-            readers[key] = SequenceReader(store, list(spec))
-        elif isinstance(spec, ScalarAttr):
-            readers[key] = ScalarAttrReader(files, spec.attrs)
-        elif isinstance(spec, Feature):
-            readers[key] = FeatureReader(store, spec.signals, spec.fn)
-    return readers
+) -> dict[str, Signals | ScalarAttr | Feature]:
+    """Normalize bare ``list[str]`` specs to ``Signals`` dataclasses."""
+    return {k: Signals(v) if isinstance(v, list) else v for k, v in specs.items()}
 
 
 def create_grain_dls(
@@ -236,10 +203,10 @@ def create_grain_dls(
     stats_batches : int
         Number of batches to sample for auto-computing stats.
     """
-    all_specs = {**inputs, **targets}
+    all_specs = _normalize_specs({**inputs, **targets})
 
     # Determine if windowing is needed
-    needs_win = any(_needs_windowing(s) for s in all_specs.values())
+    needs_win = any(s.needs_windowing for s in all_specs.values())
     if needs_win:
         if win_sz is None:
             raise ValueError(
@@ -269,7 +236,14 @@ def create_grain_dls(
             )
 
     # Collect signal names needed by the store (windowed/feature specs only)
-    all_signals = _collect_signal_names(all_specs)
+    seen: set[str] = set()
+    all_signals: list[str] = []
+    for spec in all_specs.values():
+        if spec.needs_windowing:
+            for s in spec.signals:
+                if s not in seen:
+                    seen.add(s)
+                    all_signals.append(s)
 
     dataset = Path(dataset)
 
@@ -302,9 +276,9 @@ def create_grain_dls(
             test_store = ResampledStore(test_store, factor, fn)
 
     # Build readers and DataSources
-    train_readers = _build_readers(all_specs, train_store, train_files)
-    valid_readers = _build_readers(all_specs, valid_store, valid_files)
-    test_readers = _build_readers(all_specs, test_store, test_files)
+    train_readers = {k: s.build_reader(train_store, train_files) for k, s in all_specs.items()}
+    valid_readers = {k: s.build_reader(valid_store, valid_files) for k, s in all_specs.items()}
+    test_readers = {k: s.build_reader(test_store, test_files) for k, s in all_specs.items()}
 
     if needs_win:
         train_source = DataSource(train_store, train_readers, win_sz=win_sz, stp_sz=stp_sz)

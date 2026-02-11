@@ -27,6 +27,7 @@ from .sources import Reader as Reader
 from .sources import ScalarAttr as ScalarAttr
 from .sources import ScalarAttrReader as ScalarAttrReader
 from .sources import SequenceReader as SequenceReader
+from .sources import Signals as Signals
 from .stats import EMPTY_STATS as EMPTY_STATS
 from .stats import IDENTITY_STATS as IDENTITY_STATS
 from .stats import NormStats as NormStats

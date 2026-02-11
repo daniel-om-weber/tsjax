@@ -16,6 +16,7 @@ from .data import ScalarAttr as ScalarAttr
 from .data import ScalarAttrReader as ScalarAttrReader
 from .data import SequenceReader as SequenceReader
 from .data import SignalInfo as SignalInfo
+from .data import Signals as Signals
 from .data import SignalStore as SignalStore
 from .data import bias_injection as bias_injection
 from .data import chain_augmentations as chain_augmentations

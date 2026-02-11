@@ -5,7 +5,7 @@ from __future__ import annotations
 import bisect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 import h5py
 import numpy as np
@@ -18,10 +18,25 @@ from .store import SignalStore
 
 
 @dataclass
+class Signals:
+    """Spec: read windowed signals -> (win_len, n_signals)."""
+
+    signals: list[str]
+    needs_windowing: ClassVar[bool] = True
+
+    def build_reader(self, store, files):
+        return SequenceReader(store, list(self.signals))
+
+
+@dataclass
 class ScalarAttr:
     """Spec: read per-file HDF5 attributes -> (n_attrs,)."""
 
     attrs: list[str]
+    needs_windowing: ClassVar[bool] = False
+
+    def build_reader(self, store, files):
+        return ScalarAttrReader(files, self.attrs)
 
 
 @dataclass
@@ -30,9 +45,13 @@ class Feature:
 
     signals: list[str]
     fn: Callable  # (win_sz, n_ch) -> (n_features,)
+    needs_windowing: ClassVar[bool] = True
+
+    def build_reader(self, store, files):
+        return FeatureReader(store, self.signals, self.fn)
 
 
-ReaderSpec = list[str] | ScalarAttr | Feature
+ReaderSpec = list[str] | Signals | ScalarAttr | Feature
 
 # ---------------------------------------------------------------------------
 # Index classes — iteration strategy (private, used inside DataSource)
