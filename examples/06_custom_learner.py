@@ -1,36 +1,33 @@
 # %% [markdown]
-# # Feature Targets: Windowed Signals → Derived Scalar
+# # Custom Model and Learner
 # Demonstrates `Feature` spec for reducing a signal window to a scalar,
-# and manual `Learner` construction for custom model/loss combos.
-# Uses existing Wiener-Hammerstein test data.
+# and manual `Learner` construction with composable model layers.
 
 # %%
 from pathlib import Path
 
-import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
 from tsjax import (
+    RNN,
     Denormalize,
     Feature,
     LastPool,
     Learner,
     Normalize,
     NormalizedModel,
-    RNN,
     create_grain_dls,
     normalized_mse,
 )
 
 # %%
-_root = Path(__file__).resolve().parent.parent
-DATASET = _root / "test_data/WienerHammerstein"
-
+DATASET = Path(__file__).resolve().parent.parent / "test_data/WienerHammerstein"
 
 # %% [markdown]
-# ## Define a feature function
-# Reduces a `(win_sz, n_ch)` window to a scalar `(1,)`.
+# ## Feature target
+# Reduce a `(win_sz, n_ch)` window to a scalar `(1,)` via a custom function.
+
 
 # %%
 def rms_feature(y: np.ndarray) -> np.ndarray:
@@ -38,32 +35,27 @@ def rms_feature(y: np.ndarray) -> np.ndarray:
     return np.sqrt(np.mean(y**2, axis=0))
 
 
-# %% [markdown]
-# ## Build pipeline with Feature target
-
-# %%
 pipeline = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": Feature(["y"], fn=rms_feature)},
     dataset=DATASET,
-    win_sz=500,
-    stp_sz=10,
-    bs=16,
+    win_sz=500, stp_sz=10, bs=16,
     preload=True,
 )
 
 batch = next(iter(pipeline.train))
-print(f"u shape: {batch['u'].shape}")  # (16, 500, 1) — windowed signal
-print(f"y shape: {batch['y'].shape}")  # (16, 1)       — scalar per window
+print(f"u: {batch['u'].shape}")  # (16, 500, 1) — windowed signal
+print(f"y: {batch['y'].shape}")  # (16, 1)       — scalar per window
 
 # %% [markdown]
-# ## Manual Learner construction
-# `RNN + LastPool` with NormalizedModel — the model denormalizes
-# its output to physical units, so we can use `normalized_mse` directly.
+# ## Manual model construction
+# `RNN + LastPool` reduces sequence → scalar. `NormalizedModel` wraps
+# the model with input normalization and output denormalization.
 
 # %%
 u_stats = pipeline.stats["u"]
 y_stats = pipeline.stats["y"]
+
 rnn = RNN(input_size=1, output_size=1, hidden_size=64, rngs=nnx.Rngs(0))
 model = NormalizedModel(
     nnx.Sequential(rnn, LastPool()),
@@ -71,5 +63,6 @@ model = NormalizedModel(
     norm_out=Denormalize(1, mean=y_stats.mean, std=y_stats.std),
 )
 
+# %%
 lrn = Learner(model, pipeline, loss_func=normalized_mse)
-lrn.fit(n_epoch=1, lr=1e-3)
+lrn.fit(n_epoch=3, lr=1e-3)

@@ -1,7 +1,7 @@
 # %% [markdown]
 # # Classification: Sequence → Class Label
-# Demonstrates `ScalarAttr` targets, `ClassifierLearner`, and
-# classification on synthetic damped sinusoids with 3 damping regimes.
+# Demonstrates `ScalarAttr` targets and `ClassifierLearner` on synthetic
+# damped sinusoids with 3 damping regimes.
 
 # %%
 from pathlib import Path
@@ -9,29 +9,23 @@ from pathlib import Path
 from tsjax import ClassifierLearner, ScalarAttr, create_grain_dls
 
 # %%
-_root = Path(__file__).resolve().parent.parent
-DATASET = _root / "test_data/DampedSinusoids"
-
-# %% [markdown]
-# ## Build pipeline and train
-# Three damping regimes (class 0, 1, 2) with per-file `"class"` attribute
-# and windowed `"u"` signal (damped sinusoid, 1000 pts per file).
+DATASET = Path(__file__).resolve().parent.parent / "test_data/DampedSinusoids"
 
 # %%
 pipeline = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ScalarAttr(["class"])},
     dataset=DATASET,
-    win_sz=500,
-    stp_sz=250,
-    bs=8,
+    win_sz=500, stp_sz=250, bs=8,
     preload=True,
 )
 
-batch = next(iter(pipeline.train))
-print(f"u shape: {batch['u'].shape}")  # (8, 500, 1)
-print(f"y shape: {batch['y'].shape}")  # (8, 1)
-
 # %%
 lrn = ClassifierLearner(pipeline, n_classes=3, hidden_size=64)
+lrn.show_batch(n=4)
+
+# %%
 lrn.fit(n_epoch=3, lr=1e-3)
+
+# %%
+lrn.show_results(n=4)
