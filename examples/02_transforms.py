@@ -54,7 +54,7 @@ pipeline = create_grain_dls(
     transforms={"u": lambda x: clip_transform(cumsum_transform(x))},
 )
 
-batch = pipeline.train[0]
+batch = next(iter(pipeline.train_loader(0)))
 print(f"u shape: {batch['u'].shape}")  # (16, 500, 1) — same shape, different values
 print(f"y shape: {batch['y'].shape}")  # (16, 500, 1) — unchanged
 

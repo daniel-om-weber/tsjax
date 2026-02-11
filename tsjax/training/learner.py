@@ -39,10 +39,10 @@ class Learner:
         self.valid_metrics: dict[str, list[float]] = {m.__name__: [] for m in metrics}
 
     def _get_ds_and_source(self, split: str):
-        """Return (dataset, source) for the given split name."""
+        """Return (iterable, source) for the given split name."""
         match split:
             case "train":
-                return self.pipeline.train, self.pipeline.train_source
+                return self.pipeline.train_loader(0), self.pipeline.train_source
             case "valid":
                 return self.pipeline.valid, self.pipeline.valid_source
             case "test":
@@ -60,7 +60,7 @@ class Learner:
         figsize : Matplotlib figure size override.
         """
         ds, source = self._get_ds_and_source(split)
-        batch = ds[0]
+        batch = next(iter(ds))
 
         if self.plot_batch_fn is not None:
             return self.plot_batch_fn(
@@ -89,7 +89,7 @@ class Learner:
         figsize : Matplotlib figure size override.
         """
         ds, source = self._get_ds_and_source(split)
-        batch = ds[0]
+        batch = next(iter(ds))
         target_key = self.pipeline.target_keys[0]
         inputs = {k: jnp.asarray(batch[k]) for k in self.pipeline.input_keys}
         pred = np.asarray(self.model(**inputs))
@@ -100,8 +100,13 @@ class Learner:
 
         if self.plot_results_fn is not None:
             return self.plot_results_fn(
-                target=y, pred=pred, n=n, figsize=figsize,
-                batch=batch, source=source, pipeline=self.pipeline,
+                target=y,
+                pred=pred,
+                n=n,
+                figsize=figsize,
+                batch=batch,
+                source=source,
+                pipeline=self.pipeline,
             )
 
         from tsjax.viz import plot_results
@@ -126,7 +131,7 @@ class Learner:
         self, n_epoch: int, lr: float = 3e-3, pct_start: float = 0.75, progress: bool = True
     ):
         """Train with flat LR then cosine decay."""
-        batches_per_epoch = len(self.pipeline.train)
+        batches_per_epoch = self.pipeline.n_train_batches
         total_steps = n_epoch * batches_per_epoch
         flat_steps = int(total_steps * pct_start)
         decay_steps = total_steps - flat_steps
@@ -178,14 +183,14 @@ class Learner:
             mvals = [m(pred, y, y_mean, y_std) for m in metric_fns]
             return loss, mvals
 
-        n_total_batches = len(self.pipeline.train)
+        n_total_batches = self.pipeline.n_train_batches
 
         for epoch in range(n_epoch):
             epoch_start = time.time()
             # Training
             epoch_loss = 0.0
             n_batches = 0
-            batch_iter = self.pipeline.train
+            batch_iter = self.pipeline.train_loader(epoch)
             if progress:
                 batch_iter = tqdm(
                     batch_iter,

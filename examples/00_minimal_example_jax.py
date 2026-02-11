@@ -6,7 +6,6 @@
 # %%
 from pathlib import Path
 
-import grain
 import numpy as np
 
 from tsjax import (
@@ -74,17 +73,11 @@ stats: dict[str, NormStats] = {
     "y": compute_stats(train_src, "y"),
 }
 
-# 5. Wrap in Grain datasets: shuffle + batch
-train_ds = grain.MapDataset.source(train_src).shuffle(seed=42).batch(16, drop_remainder=True)
-valid_ds = grain.MapDataset.source(valid_src).batch(16, drop_remainder=False)
-test_ds = grain.MapDataset.source(test_src).batch(1, drop_remainder=False)
-
-# 6. Assemble the pipeline (plain dataclass)
-pipeline2 = GrainPipeline(
-    train=train_ds, valid=valid_ds, test=test_ds,
-    stats=stats,
+# 5. Assemble the pipeline via from_sources
+pipeline2 = GrainPipeline.from_sources(
+    train_src, valid_src, test_src,
     input_keys=("u",), target_keys=("y",),
-    train_source=train_src, valid_source=valid_src, test_source=test_src,
+    bs=16, seed=42, stats=stats,
 )
 
 # %%
@@ -114,15 +107,10 @@ test_src3 = make_source(stores["test"])
 
 stats3 = {s: compute_stats(train_src3, s) for s in signals}
 
-train_ds3 = grain.MapDataset.source(train_src3).shuffle(seed=42).batch(16, drop_remainder=True)
-valid_ds3 = grain.MapDataset.source(valid_src3).batch(16, drop_remainder=False)
-test_ds3 = grain.MapDataset.source(test_src3).batch(1, drop_remainder=False)
-
-pipeline3 = GrainPipeline(
-    train=train_ds3, valid=valid_ds3, test=test_ds3,
-    stats=stats3,
+pipeline3 = GrainPipeline.from_sources(
+    train_src3, valid_src3, test_src3,
     input_keys=("u",), target_keys=("y",),
-    train_source=train_src3, valid_source=valid_src3, test_source=test_src3,
+    bs=16, seed=42, stats=stats3,
 )
 
 # %%
@@ -131,27 +119,16 @@ lrn3.fit(n_epoch=1, lr=1e-3)
 
 # %% [markdown]
 # ## Adding noise augmentation to training
-# Transforms are per-sample functions inserted via `.map()` before batching.
-# Apply only to the training dataset — valid/test stay clean.
+# Augmentations are per-key random transforms applied only to training data.
 
 # %%
-rng = np.random.default_rng(0)
+from tsjax import noise_injection  # noqa: E402
 
-
-def add_noise(sample):
-    return {k: v + rng.normal(0, 0.01, v.shape).astype(v.dtype) for k, v in sample.items()}
-
-
-train_ds4 = (
-    grain.MapDataset.source(train_src3).map(add_noise).shuffle(seed=42)
-    .batch(16, drop_remainder=True)
-)
-
-pipeline4 = GrainPipeline(
-    train=train_ds4, valid=valid_ds3, test=test_ds3,
-    stats=stats3,
+pipeline4 = GrainPipeline.from_sources(
+    train_src3, valid_src3, test_src3,
     input_keys=("u",), target_keys=("y",),
-    train_source=train_src3, valid_source=valid_src3, test_source=test_src3,
+    bs=16, seed=42, stats=stats3,
+    augmentations={"u": noise_injection(0.01)},
 )
 
 # %%

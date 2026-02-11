@@ -52,7 +52,7 @@ pipeline = create_grain_dls(
     preload=True,
 )
 
-batch = pipeline.train[0]
+batch = next(iter(pipeline.train_loader(0)))
 print(f"u shape: {batch['u'].shape}")  # (16, 500, 1) — windowed signal
 print(f"y shape: {batch['y'].shape}")  # (16, 1)       — scalar per window
 

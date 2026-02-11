@@ -86,8 +86,8 @@ class TestPipelineWithTransforms:
             transforms={"u": lambda x: x},
         )
 
-        batch_no = pl_no_xform.train[0]
-        batch_id = pl_identity.train[0]
+        batch_no = next(iter(pl_no_xform.train_loader(0)))
+        batch_id = next(iter(pl_identity.train_loader(0)))
         np.testing.assert_array_equal(batch_no["u"], batch_id["u"])
         np.testing.assert_array_equal(batch_no["y"], batch_id["y"])
 
@@ -115,8 +115,8 @@ class TestPipelineWithTransforms:
             transforms={"u": lambda x: x * 2},
         )
 
-        batch_base = pl_base.train[0]
-        batch_scaled = pl_scaled.train[0]
+        batch_base = next(iter(pl_base.train_loader(0)))
+        batch_scaled = next(iter(pl_scaled.train_loader(0)))
         np.testing.assert_allclose(batch_scaled["u"], batch_base["u"] * 2, atol=1e-6)
         np.testing.assert_array_equal(batch_scaled["y"], batch_base["y"])
 
@@ -166,7 +166,7 @@ class TestPipelineWithTransforms:
             transforms={"u": partial(np.mean, axis=0)},
         )
 
-        batch = pl.train[0]
+        batch = next(iter(pl.train_loader(0)))
         assert batch["u"].shape == (2, 1)  # reduced to scalar per channel
         assert batch["y"].shape == (2, 20, 1)  # unchanged
 
@@ -207,13 +207,13 @@ class TestPipelineWithTransforms:
         )
 
         # Check valid split
-        v_batch = pl.valid[0]
-        v_base = pl_base.valid[0]
+        v_batch = next(iter(pl.valid))
+        v_base = next(iter(pl_base.valid))
         np.testing.assert_allclose(v_batch["u"], v_base["u"] * 3, atol=1e-6)
 
         # Check test split (full sequence, batch=1)
-        t_batch = pl.test[0]
-        t_base = pl_base.test[0]
+        t_batch = next(iter(pl.test))
+        t_base = next(iter(pl_base.test))
         np.testing.assert_allclose(t_batch["u"], t_base["u"] * 3, atol=1e-6)
 
 
@@ -509,8 +509,8 @@ class TestPipelineWithAugmentations:
             bs=2,
             seed=0,
         )
-        np.testing.assert_array_equal(pl_aug.valid[0]["u"], pl_base.valid[0]["u"])
-        np.testing.assert_array_equal(pl_aug.test[0]["u"], pl_base.test[0]["u"])
+        np.testing.assert_array_equal(next(iter(pl_aug.valid))["u"], next(iter(pl_base.valid))["u"])
+        np.testing.assert_array_equal(next(iter(pl_aug.test))["u"], next(iter(pl_base.test))["u"])
 
     def test_augmentation_does_not_affect_stats(self, transform_dataset):
         """Stats should be identical with or without augmentations."""
@@ -559,7 +559,9 @@ class TestPipelineWithAugmentations:
             bs=2,
             seed=0,
         )
-        diff = np.abs(pl_aug.train[0]["u"] - pl_base.train[0]["u"])
+        diff = np.abs(
+            next(iter(pl_aug.train_loader(0)))["u"] - next(iter(pl_base.train_loader(0)))["u"]
+        )
         assert np.all(diff > 50)
 
     def test_invalid_augmentation_key_raises(self, transform_dataset):
@@ -604,4 +606,6 @@ class TestPipelineWithAugmentations:
         # Stats should match (augmentations don't affect stats)
         np.testing.assert_array_equal(pl.stats["u"].mean, pl_xform_only.stats["u"].mean)
         # Valid data should match (augmentations are train-only)
-        np.testing.assert_array_equal(pl.valid[0]["u"], pl_xform_only.valid[0]["u"])
+        np.testing.assert_array_equal(
+            next(iter(pl.valid))["u"], next(iter(pl_xform_only.valid))["u"]
+        )

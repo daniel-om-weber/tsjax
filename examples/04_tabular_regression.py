@@ -25,7 +25,7 @@ pipeline = create_grain_dls(
     bs=16,
 )
 
-batch = pipeline.train[0]
+batch = next(iter(pipeline.train_loader(0)))
 print(f"u shape: {batch['u'].shape}")  # (16, 3)
 print(f"y shape: {batch['y'].shape}")  # (16, 1)
 

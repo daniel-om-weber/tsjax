@@ -5,9 +5,30 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import numpy as np
+from grain import transforms as grain_transforms
 
 Transform = Callable[[np.ndarray], np.ndarray]
 Augmentation = Callable[[np.ndarray, np.random.Generator], np.ndarray]
+
+
+class _MapOp(grain_transforms.Map):
+    """Wrap a plain function as a grain MapTransform for DataLoader operations."""
+
+    def __init__(self, fn):
+        self._fn = fn
+
+    def map(self, element):
+        return self._fn(element)
+
+
+class _RandomMapOp(grain_transforms.RandomMap):
+    """Wrap a ``(element, rng)`` function as a grain RandomMapTransform."""
+
+    def __init__(self, fn):
+        self._fn = fn
+
+    def random_map(self, element, rng: np.random.Generator):
+        return self._fn(element, rng)
 
 
 def _apply_transforms(transforms: dict[str, Transform]):
@@ -23,10 +44,7 @@ def _apply_augmentations(augmentations: dict[str, Augmentation]):
     """Return a function for ``grain.random_map`` that applies per-key augmentations."""
 
     def apply(sample: dict[str, np.ndarray], rng: np.random.Generator) -> dict[str, np.ndarray]:
-        return {
-            k: augmentations[k](v, rng) if k in augmentations else v
-            for k, v in sample.items()
-        }
+        return {k: augmentations[k](v, rng) if k in augmentations else v for k, v in sample.items()}
 
     return apply
 

@@ -58,6 +58,7 @@ _VALID_DL_KWARGS = {
     "resample_fn",
     "transforms",
     "augmentations",
+    "worker_count",
 }
 
 

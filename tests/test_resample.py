@@ -277,6 +277,6 @@ class TestPipelineResampling:
             resampling_factor=0.5,
         )
         # Verify we can iterate and shapes are correct
-        batch = pl.train[0]
+        batch = next(iter(pl.train_loader(0)))
         assert batch["u"].shape[1] == 20  # win_sz preserved
         assert batch["y"].shape[1] == 20
