@@ -18,12 +18,14 @@ def _make_source(dataset_path, signals):
 
 
 def _make_loader(source, bs=4):
-    """Wrap a DataSource in a sequential DataLoader for stats tests."""
+    """Wrap a DataSource in a sequential IterDataset for stats tests."""
     import grain
 
-    from tsjax.data.pipeline import _make_sequential_loader
-
-    return _make_sequential_loader(source, [grain.transforms.Batch(bs, drop_remainder=False)])
+    return (
+        grain.MapDataset.source(source)
+        .batch(bs, drop_remainder=False)
+        .to_iter_dataset()
+    )
 
 
 def test_norm_stats_shape_and_finite(dataset_path):

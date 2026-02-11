@@ -15,8 +15,6 @@ from .item_transforms import (
     Transform,
     _apply_augmentations,
     _apply_transforms,
-    _MapOp,
-    _RandomMapOp,
 )
 from .resample import ResampledStore, ResampleFn, resample_interp
 from .sources import (
@@ -34,65 +32,31 @@ from .stats import (
 )
 
 
-def _make_train_loader(
-    source: DataSource,
-    operations: list,
-    *,
-    seed: int = 42,
-    worker_count: int = 0,
-) -> grain.DataLoader:
-    """Create an infinite shuffled DataLoader for training.
-
-    Uses ``num_epochs=None`` so the same DataLoader can be reused across
-    epochs.  The sampler internally reshuffles each pass through the data.
-    """
-    sampler = grain.samplers.IndexSampler(
-        num_records=len(source),
-        shuffle=True,
-        seed=seed,
-        num_epochs=None,
-        shard_options=grain.sharding.NoSharding(),
-    )
-    return grain.DataLoader(
-        data_source=source,
-        sampler=sampler,
-        operations=list(operations),
-        worker_count=worker_count,
-    )
-
-
-def _make_sequential_loader(
-    source: DataSource,
-    operations: list,
-    worker_count: int = 0,
-) -> grain.DataLoader:
-    """Create a deterministic DataLoader with SequentialSampler."""
-    sampler = grain.samplers.SequentialSampler(
-        num_records=len(source),
-        shard_options=grain.sharding.NoSharding(),
-    )
-    return grain.DataLoader(
-        data_source=source,
-        sampler=sampler,
-        operations=list(operations),
-        worker_count=worker_count,
-    )
-
-
 @dataclass
 class GrainPipeline:
-    """Container for train/valid/test Grain DataLoaders with norm stats."""
+    """Container for train/valid/test Grain IterDatasets with norm stats."""
 
-    train: grain.DataLoader
-    valid: grain.DataLoader
-    test: grain.DataLoader
+    train: grain.IterDataset
+    valid: grain.IterDataset
+    test: grain.IterDataset
     input_keys: tuple[str, ...]
     target_keys: tuple[str, ...]
     train_source: DataSource
     valid_source: DataSource
     test_source: DataSource
-    n_train_batches: int
+    bs: int
     _stats_batches: int = field(default=10, repr=False)
+    _n_train_batches_override: int | None = field(default=None, init=False, repr=False)
+
+    @property
+    def n_train_batches(self) -> int:
+        if self._n_train_batches_override is not None:
+            return self._n_train_batches_override
+        return len(self.train_source) // self.bs
+
+    @n_train_batches.setter
+    def n_train_batches(self, value: int) -> None:
+        self._n_train_batches_override = value
 
     @functools.cached_property
     def stats(self) -> dict[str, NormStats]:
@@ -127,45 +91,46 @@ class GrainPipeline:
         transforms : Per-key transforms applied per-sample before batching.
         augmentations : Per-key augmentations applied to training data only.
             Each augmentation receives ``(array, rng)`` and returns an array.
-        worker_count : Number of DataLoader worker processes (0 = main process).
+        worker_count : Number of worker processes for training (0 = main process).
         stats_batches : Number of batches to sample for auto-computing stats.
         """
-        # Build DataLoader operations (transforms + augmentations + batching)
-        train_ops: list = []
-        valid_ops: list = []
-        test_ops: list = []
+        transform_fn = _apply_transforms(transforms) if transforms else None
+        augment_fn = _apply_augmentations(augmentations) if augmentations else None
 
-        if transforms:
-            op = _MapOp(_apply_transforms(transforms))
-            train_ops.append(op)
-            valid_ops.append(op)
-            test_ops.append(op)
+        # Train: infinite shuffled with optional augmentations
+        train_ds = grain.MapDataset.source(train).seed(seed).shuffle().repeat(None)
+        if transform_fn:
+            train_ds = train_ds.map(transform_fn)
+        if augment_fn:
+            train_ds = train_ds.random_map(augment_fn)
+        train_iter = train_ds.batch(bs, drop_remainder=True).to_iter_dataset()
+        if worker_count > 0:
+            train_iter = train_iter.mp_prefetch(
+                grain.MultiprocessingOptions(num_workers=worker_count)
+            )
 
-        if augmentations:
-            train_ops.append(_RandomMapOp(_apply_augmentations(augmentations)))
+        # Valid: sequential, no augmentations
+        valid_ds = grain.MapDataset.source(valid)
+        if transform_fn:
+            valid_ds = valid_ds.map(transform_fn)
+        valid_iter = valid_ds.batch(bs, drop_remainder=False).to_iter_dataset()
 
-        train_ops.append(grain.transforms.Batch(bs, drop_remainder=True))
-        valid_ops.append(grain.transforms.Batch(bs, drop_remainder=False))
-        test_ops.append(grain.transforms.Batch(1, drop_remainder=False))
-
-        train_dl = _make_train_loader(
-            train, train_ops, seed=seed, worker_count=worker_count
-        )
-        valid_dl = _make_sequential_loader(valid, valid_ops, worker_count=0)
-        test_dl = _make_sequential_loader(test, test_ops, worker_count=0)
-
-        n_train_batches = len(train) // bs
+        # Test: sequential, batch_size=1
+        test_ds = grain.MapDataset.source(test)
+        if transform_fn:
+            test_ds = test_ds.map(transform_fn)
+        test_iter = test_ds.batch(1, drop_remainder=False).to_iter_dataset()
 
         return cls(
-            train=train_dl,
-            valid=valid_dl,
-            test=test_dl,
+            train=train_iter,
+            valid=valid_iter,
+            test=test_iter,
             input_keys=tuple(input_keys),
             target_keys=tuple(target_keys),
             train_source=train,
             valid_source=valid,
             test_source=test,
-            n_train_batches=n_train_batches,
+            bs=bs,
             _stats_batches=stats_batches,
         )
 
@@ -362,43 +327,18 @@ def create_grain_dls(
             else DataSource(_DummyStore(test_files), test_readers)
         )
 
-    # Build DataLoader operations (transforms + augmentations + batching)
-    train_ops: list = []
-    valid_ops: list = []
-    test_ops: list = []
-
-    if transforms:
-        op = _MapOp(_apply_transforms(transforms))
-        train_ops.append(op)
-        valid_ops.append(op)
-        test_ops.append(op)
-
-    if augmentations:
-        train_ops.append(_RandomMapOp(_apply_augmentations(augmentations)))
-
-    train_ops.append(grain.transforms.Batch(bs, drop_remainder=True))
-    valid_ops.append(grain.transforms.Batch(bs, drop_remainder=False))
-    test_ops.append(grain.transforms.Batch(1, drop_remainder=False))
-
-    train_dl = _make_train_loader(
-        train_source, train_ops, seed=seed, worker_count=worker_count
-    )
-    valid_dl = _make_sequential_loader(valid_source, valid_ops, worker_count=0)
-    test_dl = _make_sequential_loader(test_source, test_ops, worker_count=0)
-
-    n_train_batches = len(train_source) // bs
-
-    return GrainPipeline(
-        train=train_dl,
-        valid=valid_dl,
-        test=test_dl,
+    return GrainPipeline.from_sources(
+        train_source,
+        valid_source,
+        test_source,
         input_keys=tuple(inputs),
         target_keys=tuple(targets),
-        train_source=train_source,
-        valid_source=valid_source,
-        test_source=test_source,
-        n_train_batches=n_train_batches,
-        _stats_batches=stats_batches,
+        bs=bs,
+        seed=seed,
+        transforms=transforms,
+        augmentations=augmentations,
+        worker_count=worker_count,
+        stats_batches=stats_batches,
     )
 
 

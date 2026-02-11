@@ -226,11 +226,13 @@ class TestReadHDF5Attr:
 class TestComputeNormStatsFromIndex:
     @staticmethod
     def _make_loader(store, bs=4):
-        from tsjax.data.pipeline import _make_sequential_loader
-
         readers = {"u": SequenceReader(store, ["u"]), "y": SequenceReader(store, ["y"])}
         source = DataSource(store, readers)
-        return _make_sequential_loader(source, [grain.transforms.Batch(bs, drop_remainder=False)])
+        return (
+            grain.MapDataset.source(source)
+            .batch(bs, drop_remainder=False)
+            .to_iter_dataset()
+        )
 
     def test_matches_original(self, train_store):
         """Store-based stats via compute_stats should match direct h5py computation."""
