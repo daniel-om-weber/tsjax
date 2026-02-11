@@ -9,7 +9,7 @@ from pathlib import Path
 import grain
 
 from .hdf5_store import HDF5Store
-from .item_transforms import Transform, _apply_transforms
+from .item_transforms import Augmentation, Transform, _apply_augmentations, _apply_transforms
 from .resample import ResampledStore, ResampleFn, resample_interp
 from .sources import (
     DataSource,
@@ -53,6 +53,7 @@ class GrainPipeline:
         seed: int = 42,
         stats: dict[str, NormStats] | None = None,
         transforms: dict[str, Transform] | None = None,
+        augmentations: dict[str, Augmentation] | None = None,
     ) -> GrainPipeline:
         """Build a GrainPipeline from pre-constructed DataSources.
 
@@ -66,6 +67,9 @@ class GrainPipeline:
         stats : Pre-computed stats dict.  If None, stats are auto-computed
             by dispatching on reader type (SequenceReader, ScalarAttrReader, etc.).
         transforms : Per-key transforms applied per-sample before batching.
+        augmentations : Per-key augmentations applied to training data only
+            via ``grain.random_map()``.  Each augmentation receives
+            ``(array, rng)`` and returns an array.
         """
         all_keys = tuple(input_keys) + tuple(target_keys)
         user_stats = stats or {}
@@ -88,6 +92,9 @@ class GrainPipeline:
             train_ds = train_ds.map(xform_fn)
             valid_ds = valid_ds.map(xform_fn)
             test_ds = test_ds.map(xform_fn)
+
+        if augmentations:
+            train_ds = train_ds.random_map(_apply_augmentations(augmentations), seed=seed)
 
         train_ds = train_ds.shuffle(seed=seed).batch(bs, drop_remainder=True)
         valid_ds = valid_ds.batch(bs, drop_remainder=False)
@@ -171,6 +178,7 @@ def create_grain_dls(
     fs_attr: str = "sampling_rate",
     resample_fn: ResampleFn | None = None,
     transforms: dict[str, Transform] | None = None,
+    augmentations: dict[str, Augmentation] | None = None,
 ) -> GrainPipeline:
     """Create Grain data pipelines yielding raw (unnormalized) data.
 
@@ -196,6 +204,11 @@ def create_grain_dls(
     transforms : dict mapping batch key names to transform functions, optional
         Per-key transforms applied to each sample via ``grain.map()``
         before batching.  Stats are computed on the transformed data.
+    augmentations : dict mapping batch key names to augmentation functions, optional
+        Per-key augmentations applied to training data only via
+        ``grain.random_map()``.  Each augmentation is
+        ``(ndarray, Generator) -> ndarray``.  Applied after transforms.
+        Stats are computed on pre-augmentation data.
     """
     all_specs = {**inputs, **targets}
 
@@ -219,6 +232,13 @@ def create_grain_dls(
         if unknown:
             raise ValueError(
                 f"Transform keys {unknown} not found in inputs/targets "
+                f"(available: {set(all_specs)})"
+            )
+    if augmentations:
+        unknown = set(augmentations) - set(all_specs)
+        if unknown:
+            raise ValueError(
+                f"Augmentation keys {unknown} not found in inputs/targets "
                 f"(available: {set(all_specs)})"
             )
 
@@ -299,6 +319,9 @@ def create_grain_dls(
         train_ds = train_ds.map(xform_fn)
         valid_ds = valid_ds.map(xform_fn)
         test_ds = test_ds.map(xform_fn)
+
+    if augmentations:
+        train_ds = train_ds.random_map(_apply_augmentations(augmentations), seed=seed)
 
     train_ds = train_ds.shuffle(seed=seed).batch(bs, drop_remainder=True)
     valid_ds = valid_ds.batch(bs, drop_remainder=False)

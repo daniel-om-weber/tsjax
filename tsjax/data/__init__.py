@@ -5,8 +5,15 @@ from .benchmark import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .hdf5_store import HDF5Store as HDF5Store
 from .hdf5_store import SignalInfo as SignalInfo
 from .hdf5_store import read_hdf5_attr as read_hdf5_attr
+from .item_transforms import Augmentation as Augmentation
 from .item_transforms import Transform as Transform
+from .item_transforms import bias_injection as bias_injection
+from .item_transforms import chain_augmentations as chain_augmentations
+from .item_transforms import grouped_noise as grouped_noise
+from .item_transforms import noise_injection as noise_injection
+from .item_transforms import seq_slice as seq_slice
 from .item_transforms import stft_transform as stft_transform
+from .item_transforms import varying_noise as varying_noise
 from .pipeline import GrainPipeline as GrainPipeline
 from .pipeline import create_grain_dls as create_grain_dls
 from .pipeline import create_simulation_dls as create_simulation_dls

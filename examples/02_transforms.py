@@ -68,3 +68,32 @@ print(f"u std:  {pipeline.stats['u'].std}")
 # %%
 lrn = RNNLearner(pipeline, hidden_size=64, n_skip=10, metrics=[rmse])
 lrn.fit_flat_cos(n_epoch=1, lr=1e-3)
+
+# %% [markdown]
+# ## Adding augmentations (training-only noise)
+# Augmentations are random, training-only transforms that don't affect
+# normalization stats.  They use `grain.random_map()` for deterministic
+# per-sample seeding.
+
+# %%
+from tsjax import bias_injection, chain_augmentations, noise_injection  # noqa: E402
+
+pipeline_aug = create_grain_dls(
+    inputs={"u": ["u"]},
+    targets={"y": ["y"]},
+    dataset=DATASET,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
+    preload=True,
+    transforms={"u": lambda x: clip_transform(cumsum_transform(x))},
+    augmentations={"u": chain_augmentations(noise_injection(0.01), bias_injection(0.005))},
+)
+
+# Stats are identical — augmentations don't affect them
+print(f"u mean (with aug): {pipeline_aug.stats['u'].mean}")
+print(f"u mean (no aug):   {pipeline.stats['u'].mean}")
+
+# %%
+lrn_aug = RNNLearner(pipeline_aug, hidden_size=64, n_skip=10, metrics=[rmse])
+lrn_aug.fit_flat_cos(n_epoch=1, lr=1e-3)

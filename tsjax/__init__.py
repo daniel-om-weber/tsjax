@@ -3,6 +3,7 @@
 __version__ = "0.1.0"
 
 from .data import IDENTITY_STATS as IDENTITY_STATS
+from .data import Augmentation as Augmentation
 from .data import DataSource as DataSource
 from .data import Feature as Feature
 from .data import FeatureReader as FeatureReader
@@ -16,13 +17,19 @@ from .data import ScalarAttrReader as ScalarAttrReader
 from .data import SequenceReader as SequenceReader
 from .data import SignalInfo as SignalInfo
 from .data import SignalStore as SignalStore
+from .data import bias_injection as bias_injection
+from .data import chain_augmentations as chain_augmentations
 from .data import compute_stats as compute_stats
 from .data import create_grain_dls as create_grain_dls
 from .data import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .data import create_simulation_dls as create_simulation_dls
+from .data import grouped_noise as grouped_noise
+from .data import noise_injection as noise_injection
 from .data import resample_fft as resample_fft
 from .data import resample_interp as resample_interp
+from .data import seq_slice as seq_slice
 from .data import stft_transform as stft_transform
+from .data import varying_noise as varying_noise
 from .losses import cross_entropy_loss as cross_entropy_loss
 from .losses import normalized_mae as normalized_mae
 from .losses import normalized_mse as normalized_mse

@@ -56,6 +56,8 @@ _VALID_DL_KWARGS = {
     "target_fs",
     "fs_attr",
     "resample_fn",
+    "transforms",
+    "augmentations",
 }
 
 
