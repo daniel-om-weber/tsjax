@@ -81,7 +81,7 @@ def test_hdf5_store_reads_match_h5py(dataset_path):
 
 def test_pipeline_train_batch_shapes(pipeline):
     """Train batches should be (bs, win_sz, n_signals)."""
-    batch = next(iter(pipeline.train_loader(0)))
+    batch = next(iter(pipeline.train))
     assert batch["u"].shape == (4, 20, 1)
     assert batch["y"].shape == (4, 20, 1)
 
@@ -100,7 +100,8 @@ def test_multiworker_train_loader(dataset_path):
         seed=42,
         worker_count=2,
     )
-    batches = list(pl.train_loader(0))
+    train_iter = iter(pl.train)
+    batches = [next(train_iter) for _ in range(pl.n_train_batches)]
     assert len(batches) > 0
     for batch in batches:
         assert batch["u"].shape == (4, 20, 1)
@@ -352,7 +353,7 @@ class TestReaderSpecDispatch:
         )
         assert pl.input_keys == ("u",)
         assert pl.target_keys == ("y",)
-        batch = next(iter(pl.train_loader(0)))
+        batch = next(iter(pl.train))
         assert batch["u"].shape == (2, 20, 1)  # windowed
         assert batch["y"].shape == (2, 1)  # scalar
 
@@ -381,7 +382,7 @@ class TestReaderSpecDispatch:
             stp_sz=20,
             bs=2,
         )
-        batch = next(iter(pl.train_loader(0)))
+        batch = next(iter(pl.train))
         assert batch["u"].shape == (2, 20, 1)  # windowed
         assert batch["y"].shape == (2, 1)  # feature-reduced
 

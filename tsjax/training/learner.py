@@ -42,7 +42,7 @@ class Learner:
         """Return (iterable, source) for the given split name."""
         match split:
             case "train":
-                return self.pipeline.train_loader(0), self.pipeline.train_source
+                return self.pipeline.train, self.pipeline.train_source
             case "valid":
                 return self.pipeline.valid, self.pipeline.valid_source
             case "test":
@@ -184,31 +184,33 @@ class Learner:
             return loss, mvals
 
         n_total_batches = self.pipeline.n_train_batches
+        train_iter = iter(self.pipeline.train)
 
         for epoch in range(n_epoch):
             epoch_start = time.time()
             # Training
             epoch_loss = 0.0
-            n_batches = 0
-            batch_iter = self.pipeline.train_loader(epoch)
+            pbar = None
             if progress:
-                batch_iter = tqdm(
-                    batch_iter,
+                pbar = tqdm(
                     total=n_total_batches,
                     desc=f"Epoch {epoch + 1}/{n_epoch}",
                     leave=False,
                     mininterval=1.0,
                 )
-            for batch in batch_iter:
+            for i in range(n_total_batches):
+                batch = next(train_iter)
                 inputs = {k: jnp.asarray(batch[k]) for k in input_keys}
                 y = jnp.asarray(batch[target_key])
                 loss = train_step(model, optimizer, inputs, y)
                 epoch_loss += float(loss)
-                n_batches += 1
-                if progress:
-                    batch_iter.set_postfix(loss=f"{epoch_loss / n_batches:.4f}", refresh=False)
+                if pbar is not None:
+                    pbar.update(1)
+                    pbar.set_postfix(loss=f"{epoch_loss / (i + 1):.4f}", refresh=False)
+            if pbar is not None:
+                pbar.close()
 
-            avg_train = epoch_loss / max(n_batches, 1)
+            avg_train = epoch_loss / max(n_total_batches, 1)
             self.train_losses.append(avg_train)
 
             # Validation

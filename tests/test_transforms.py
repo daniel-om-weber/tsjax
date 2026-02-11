@@ -86,8 +86,8 @@ class TestPipelineWithTransforms:
             transforms={"u": lambda x: x},
         )
 
-        batch_no = next(iter(pl_no_xform.train_loader(0)))
-        batch_id = next(iter(pl_identity.train_loader(0)))
+        batch_no = next(iter(pl_no_xform.train))
+        batch_id = next(iter(pl_identity.train))
         np.testing.assert_array_equal(batch_no["u"], batch_id["u"])
         np.testing.assert_array_equal(batch_no["y"], batch_id["y"])
 
@@ -115,8 +115,8 @@ class TestPipelineWithTransforms:
             transforms={"u": lambda x: x * 2},
         )
 
-        batch_base = next(iter(pl_base.train_loader(0)))
-        batch_scaled = next(iter(pl_scaled.train_loader(0)))
+        batch_base = next(iter(pl_base.train))
+        batch_scaled = next(iter(pl_scaled.train))
         np.testing.assert_allclose(batch_scaled["u"], batch_base["u"] * 2, atol=1e-6)
         np.testing.assert_array_equal(batch_scaled["y"], batch_base["y"])
 
@@ -166,7 +166,7 @@ class TestPipelineWithTransforms:
             transforms={"u": partial(np.mean, axis=0)},
         )
 
-        batch = next(iter(pl.train_loader(0)))
+        batch = next(iter(pl.train))
         assert batch["u"].shape == (2, 1)  # reduced to scalar per channel
         assert batch["y"].shape == (2, 20, 1)  # unchanged
 
@@ -545,7 +545,7 @@ class TestPipelineWithAugmentations:
             seed=0,
         )
         diff = np.abs(
-            next(iter(pl_aug.train_loader(0)))["u"] - next(iter(pl_base.train_loader(0)))["u"]
+            next(iter(pl_aug.train))["u"] - next(iter(pl_base.train))["u"]
         )
         assert np.all(diff > 50)
 

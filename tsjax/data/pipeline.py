@@ -34,6 +34,33 @@ from .stats import (
 )
 
 
+def _make_train_loader(
+    source: DataSource,
+    operations: list,
+    *,
+    seed: int = 42,
+    worker_count: int = 0,
+) -> grain.DataLoader:
+    """Create an infinite shuffled DataLoader for training.
+
+    Uses ``num_epochs=None`` so the same DataLoader can be reused across
+    epochs.  The sampler internally reshuffles each pass through the data.
+    """
+    sampler = grain.samplers.IndexSampler(
+        num_records=len(source),
+        shuffle=True,
+        seed=seed,
+        num_epochs=None,
+        shard_options=grain.sharding.NoSharding(),
+    )
+    return grain.DataLoader(
+        data_source=source,
+        sampler=sampler,
+        operations=list(operations),
+        worker_count=worker_count,
+    )
+
+
 def _make_sequential_loader(
     source: DataSource,
     operations: list,
@@ -56,6 +83,7 @@ def _make_sequential_loader(
 class GrainPipeline:
     """Container for train/valid/test Grain DataLoaders with norm stats."""
 
+    train: grain.DataLoader
     valid: grain.DataLoader
     test: grain.DataLoader
     input_keys: tuple[str, ...]
@@ -64,30 +92,7 @@ class GrainPipeline:
     valid_source: DataSource
     test_source: DataSource
     n_train_batches: int
-    _train_ops: list = field(repr=False)
-    _train_worker_count: int = field(default=0, repr=False)
-    _seed: int = field(default=42, repr=False)
     _stats_batches: int = field(default=10, repr=False)
-
-    def train_loader(self, epoch: int = 0) -> grain.DataLoader:
-        """Create a shuffled training DataLoader for the given epoch.
-
-        Each epoch gets a different shuffle (seed + epoch).  The loader
-        produces exactly one epoch of batches, then stops.
-        """
-        sampler = grain.samplers.IndexSampler(
-            num_records=len(self.train_source),
-            shuffle=True,
-            seed=self._seed + epoch,
-            num_epochs=1,
-            shard_options=grain.sharding.NoSharding(),
-        )
-        return grain.DataLoader(
-            data_source=self.train_source,
-            sampler=sampler,
-            operations=list(self._train_ops),
-            worker_count=self._train_worker_count,
-        )
 
     @functools.cached_property
     def stats(self) -> dict[str, NormStats]:
@@ -143,13 +148,16 @@ class GrainPipeline:
         valid_ops.append(grain.transforms.Batch(bs, drop_remainder=False))
         test_ops.append(grain.transforms.Batch(1, drop_remainder=False))
 
-        # Valid/test use SequentialSampler — deterministic and reusable
+        train_dl = _make_train_loader(
+            train, train_ops, seed=seed, worker_count=worker_count
+        )
         valid_dl = _make_sequential_loader(valid, valid_ops, worker_count=0)
         test_dl = _make_sequential_loader(test, test_ops, worker_count=0)
 
         n_train_batches = len(train) // bs
 
         return cls(
+            train=train_dl,
             valid=valid_dl,
             test=test_dl,
             input_keys=tuple(input_keys),
@@ -158,9 +166,6 @@ class GrainPipeline:
             valid_source=valid,
             test_source=test,
             n_train_batches=n_train_batches,
-            _train_ops=train_ops,
-            _train_worker_count=worker_count,
-            _seed=seed,
             _stats_batches=stats_batches,
         )
 
@@ -375,13 +380,16 @@ def create_grain_dls(
     valid_ops.append(grain.transforms.Batch(bs, drop_remainder=False))
     test_ops.append(grain.transforms.Batch(1, drop_remainder=False))
 
-    # Valid/test use SequentialSampler — deterministic and reusable
+    train_dl = _make_train_loader(
+        train_source, train_ops, seed=seed, worker_count=worker_count
+    )
     valid_dl = _make_sequential_loader(valid_source, valid_ops, worker_count=0)
     test_dl = _make_sequential_loader(test_source, test_ops, worker_count=0)
 
     n_train_batches = len(train_source) // bs
 
     return GrainPipeline(
+        train=train_dl,
         valid=valid_dl,
         test=test_dl,
         input_keys=tuple(inputs),
@@ -390,9 +398,6 @@ def create_grain_dls(
         valid_source=valid_source,
         test_source=test_source,
         n_train_batches=n_train_batches,
-        _train_ops=train_ops,
-        _train_worker_count=worker_count,
-        _seed=seed,
         _stats_batches=stats_batches,
     )
 
