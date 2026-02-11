@@ -17,12 +17,23 @@ def _make_source(dataset_path, signals):
     return DataSource(store, readers)
 
 
+def _make_loader(source, bs=4):
+    """Wrap a DataSource in a sequential DataLoader for stats tests."""
+    import grain
+
+    from tsjax.data.pipeline import _make_sequential_loader
+
+    return _make_sequential_loader(source, [grain.transforms.Batch(bs, drop_remainder=False)])
+
+
 def test_norm_stats_shape_and_finite(dataset_path):
     """compute_stats returns finite float32 arrays with one element per signal."""
     from tsjax import compute_stats
 
     source = _make_source(dataset_path, ["u"])
-    ns = compute_stats(source, "u")
+    dl = _make_loader(source)
+    result = compute_stats(dl, ["u"], n_batches=100)
+    ns = result["u"]
     assert ns.mean.shape == (1,)
     assert ns.std.shape == (1,)
     assert ns.mean.dtype == np.float32
@@ -36,7 +47,9 @@ def test_norm_stats_match_manual_computation(dataset_path):
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
     source = _make_source(dataset_path, ["u"])
-    ns = compute_stats(source, "u")
+    dl = _make_loader(source)
+    result = compute_stats(dl, ["u"], n_batches=1000)
+    ns = result["u"]
 
     # Manual computation
     all_data = []
@@ -78,8 +91,14 @@ def test_multiworker_train_loader(dataset_path):
     from tsjax import create_simulation_dls
 
     pl = create_simulation_dls(
-        u=["u"], y=["y"], dataset=dataset_path,
-        win_sz=20, stp_sz=10, bs=4, seed=42, worker_count=2,
+        u=["u"],
+        y=["y"],
+        dataset=dataset_path,
+        win_sz=20,
+        stp_sz=10,
+        bs=4,
+        seed=42,
+        worker_count=2,
     )
     batches = list(pl.train_loader(0))
     assert len(batches) > 0
@@ -246,19 +265,21 @@ class TestFeatureReader:
 
 class TestComputeScalarStats:
     @staticmethod
-    def _make_scalar_source(files, attrs):
+    def _make_scalar_loader(files, attrs):
         from tsjax.data.pipeline import _DummyStore
         from tsjax.data.sources import DataSource, ScalarAttrReader
 
         reader = ScalarAttrReader(files, attrs)
         store = _DummyStore(files)
-        return DataSource(store, {"x": reader})
+        source = DataSource(store, {"x": reader})
+        return _make_loader(source, bs=len(files))
 
     def test_shape_and_dtype(self, scalar_hdf5_files):
         from tsjax.data.stats import compute_stats
 
-        source = self._make_scalar_source(scalar_hdf5_files, ["mass"])
-        ns = compute_stats(source, "x")
+        dl = self._make_scalar_loader(scalar_hdf5_files, ["mass"])
+        result = compute_stats(dl, ["x"], n_batches=10)
+        ns = result["x"]
         assert ns.mean.shape == (1,)
         assert ns.std.shape == (1,)
         assert ns.mean.dtype == np.float32
@@ -267,8 +288,9 @@ class TestComputeScalarStats:
     def test_matches_manual(self, scalar_hdf5_files):
         from tsjax.data.stats import compute_stats
 
-        source = self._make_scalar_source(scalar_hdf5_files, ["mass"])
-        ns = compute_stats(source, "x")
+        dl = self._make_scalar_loader(scalar_hdf5_files, ["mass"])
+        result = compute_stats(dl, ["x"], n_batches=10)
+        ns = result["x"]
         vals = np.array([1.0, 2.0, 3.0])
         np.testing.assert_allclose(ns.mean[0], np.mean(vals), atol=1e-6)
         np.testing.assert_allclose(ns.std[0], np.std(vals), atol=1e-6)
@@ -276,16 +298,18 @@ class TestComputeScalarStats:
     def test_multi_attr(self, scalar_hdf5_files):
         from tsjax.data.stats import compute_stats
 
-        source = self._make_scalar_source(scalar_hdf5_files, ["mass", "stiffness"])
-        ns = compute_stats(source, "x")
+        dl = self._make_scalar_loader(scalar_hdf5_files, ["mass", "stiffness"])
+        result = compute_stats(dl, ["x"], n_batches=10)
+        ns = result["x"]
         assert ns.mean.shape == (2,)
         assert ns.std.shape == (2,)
 
     def test_empty_attrs(self, scalar_hdf5_files):
         from tsjax.data.stats import compute_stats
 
-        source = self._make_scalar_source(scalar_hdf5_files, [])
-        ns = compute_stats(source, "x")
+        dl = self._make_scalar_loader(scalar_hdf5_files, [])
+        result = compute_stats(dl, ["x"], n_batches=10)
+        ns = result["x"]
         assert ns.mean.shape == (0,)
         assert ns.std.shape == (0,)
 
@@ -360,3 +384,44 @@ class TestReaderSpecDispatch:
         batch = next(iter(pl.train_loader(0)))
         assert batch["u"].shape == (2, 20, 1)  # windowed
         assert batch["y"].shape == (2, 1)  # feature-reduced
+
+
+# ---------------------------------------------------------------------------
+# Numerical stability regression test
+# ---------------------------------------------------------------------------
+
+
+def test_stats_numerically_stable_large_offset(tmp_path):
+    """Variance computation must be stable for large-offset, small-variance data.
+
+    The naive formula std = sqrt(E[x²] - E[x]²) produces catastrophic
+    cancellation here (negative variance → NaN).  numpy handles this correctly.
+    """
+    from tsjax import DataSource, HDF5Store, SequenceReader, compute_stats
+
+    # Data centered at 1e6 with std=0.01 — triggers cancellation in naive formula
+    rng = np.random.default_rng(42)
+    offset = 1e6
+    true_std = 0.01
+    n_samples = 10_000
+
+    path = tmp_path / "large_offset.hdf5"
+    data = (rng.standard_normal(n_samples) * true_std + offset).astype(np.float32)
+    with h5py.File(str(path), "w") as f:
+        f.create_dataset("y", data=data)
+
+    store = HDF5Store([str(path)], ["y"])
+    readers = {"y": SequenceReader(store, ["y"])}
+    source = DataSource(store, readers)
+    dl = _make_loader(source, bs=1000)
+    result = compute_stats(dl, ["y"], n_batches=100)
+    ns = result["y"]
+
+    expected_mean = np.mean(data)
+    expected_std = np.std(data)
+
+    assert np.all(np.isfinite(ns.mean)), "mean contains NaN/Inf"
+    assert np.all(np.isfinite(ns.std)), "std contains NaN/Inf"
+    assert ns.std[0] > 0, "std should be positive"
+    np.testing.assert_allclose(ns.mean[0], expected_mean, rtol=1e-5)
+    np.testing.assert_allclose(ns.std[0], expected_std, rtol=1e-2)

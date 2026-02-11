@@ -218,17 +218,16 @@ class TestPipelineWithTransforms:
 
 
 # ---------------------------------------------------------------------------
-# compute_stats_with_transform unit tests
+# Pipeline stats reflect transforms
 # ---------------------------------------------------------------------------
 
 
-class TestComputeStatsWithTransform:
-    def test_identity_stats_close_to_raw(self, transform_dataset):
-        """Stats with identity transform should closely match raw stats."""
+class TestPipelineStatsWithTransform:
+    def test_transform_reflected_in_stats(self, transform_dataset):
+        """Pipeline stats should reflect the applied transform (3x scaling)."""
         from tsjax.data.pipeline import create_grain_dls
-        from tsjax.data.stats import compute_stats
 
-        pl = create_grain_dls(
+        pl_raw = create_grain_dls(
             inputs={"u": ["u"]},
             targets={"y": ["y"]},
             dataset=transform_dataset,
@@ -237,18 +236,22 @@ class TestComputeStatsWithTransform:
             bs=2,
         )
 
-        xform_stats = compute_stats(pl.train_source, "u", transform=lambda x: x)
+        pl_scaled = create_grain_dls(
+            inputs={"u": ["u"]},
+            targets={"y": ["y"]},
+            dataset=transform_dataset,
+            win_sz=20,
+            stp_sz=20,
+            bs=2,
+            transforms={"u": lambda x: x * 3},
+        )
 
-        # With non-overlapping windows covering all samples, stats should be very close
-        np.testing.assert_allclose(xform_stats.mean, pl.stats["u"].mean, atol=1e-3)
-        np.testing.assert_allclose(xform_stats.std, pl.stats["u"].std, atol=1e-2)
+        # Scaled mean should be ~3x raw mean, scaled std should be ~3x raw std
+        np.testing.assert_allclose(pl_scaled.stats["u"].mean, pl_raw.stats["u"].mean * 3, atol=1e-3)
+        np.testing.assert_allclose(pl_scaled.stats["u"].std, pl_raw.stats["u"].std * 3, atol=1e-2)
 
-    def test_scalar_output_transform(self, transform_dataset):
-        """Stats on a scalar-output transform should have correct shape."""
-        from functools import partial
-
+    def test_stats_dtype_always_float32(self, transform_dataset):
         from tsjax.data.pipeline import create_grain_dls
-        from tsjax.data.stats import compute_stats
 
         pl = create_grain_dls(
             inputs={"u": ["u"]},
@@ -257,29 +260,11 @@ class TestComputeStatsWithTransform:
             win_sz=20,
             stp_sz=20,
             bs=2,
+            transforms={"u": lambda x: x * 100},
         )
 
-        stats = compute_stats(pl.train_source, "u", transform=partial(np.mean, axis=0))
-        assert stats.mean.shape == (1,)
-        assert stats.std.shape == (1,)
-        assert stats.mean.dtype == np.float32
-
-    def test_dtype_always_float32(self, transform_dataset):
-        from tsjax.data.pipeline import create_grain_dls
-        from tsjax.data.stats import compute_stats
-
-        pl = create_grain_dls(
-            inputs={"u": ["u"]},
-            targets={"y": ["y"]},
-            dataset=transform_dataset,
-            win_sz=20,
-            stp_sz=20,
-            bs=2,
-        )
-
-        stats = compute_stats(pl.train_source, "u", transform=lambda x: x * 100)
-        assert stats.mean.dtype == np.float32
-        assert stats.std.dtype == np.float32
+        assert pl.stats["u"].mean.dtype == np.float32
+        assert pl.stats["u"].std.dtype == np.float32
 
 
 # ---------------------------------------------------------------------------

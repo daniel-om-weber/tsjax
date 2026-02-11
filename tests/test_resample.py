@@ -5,6 +5,7 @@ from __future__ import annotations
 import pickle
 from pathlib import Path
 
+import grain
 import h5py
 import numpy as np
 import pytest
@@ -224,14 +225,18 @@ class TestReadHDF5Attr:
 
 class TestComputeNormStatsFromIndex:
     @staticmethod
-    def _make_source(store):
+    def _make_loader(store, bs=4):
+        from tsjax.data.pipeline import _make_sequential_loader
+
         readers = {"u": SequenceReader(store, ["u"]), "y": SequenceReader(store, ["y"])}
-        return DataSource(store, readers)
+        source = DataSource(store, readers)
+        return _make_sequential_loader(source, [grain.transforms.Batch(bs, drop_remainder=False)])
 
     def test_matches_original(self, train_store):
         """Store-based stats via compute_stats should match direct h5py computation."""
-        source = self._make_source(train_store)
-        idx = compute_stats(source, "u")
+        dl = self._make_loader(train_store)
+        result = compute_stats(dl, ["u"], n_batches=1000)
+        ns = result["u"]
 
         # Manual h5py reference
         all_data = []
@@ -244,14 +249,15 @@ class TestComputeNormStatsFromIndex:
         expected_mean = np.mean(data).astype(np.float32)
         expected_std = np.std(data).astype(np.float32)
 
-        np.testing.assert_allclose(idx.mean[0], expected_mean, atol=1e-5)
-        np.testing.assert_allclose(idx.std[0], expected_std, atol=1e-5)
+        np.testing.assert_allclose(ns.mean[0], expected_mean, atol=1e-5)
+        np.testing.assert_allclose(ns.std[0], expected_std, atol=1e-5)
 
     def test_with_resampled_store(self, train_store):
         """Stats from a ResampledStore should return valid arrays."""
         rs = ResampledStore(train_store, factor=0.5)
-        source = self._make_source(rs)
-        ns = compute_stats(source, "u")
+        dl = self._make_loader(rs)
+        result = compute_stats(dl, ["u"], n_batches=1000)
+        ns = result["u"]
         assert ns.mean.shape == (1,)
         assert ns.std.shape == (1,)
         assert np.all(ns.std > 0)

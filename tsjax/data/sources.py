@@ -10,7 +10,6 @@ from typing import Protocol, runtime_checkable
 import h5py
 import numpy as np
 
-from .stats import EMPTY_STATS, NormStats
 from .store import SignalStore
 
 # ---------------------------------------------------------------------------
@@ -122,26 +121,6 @@ class SequenceReader:
             l_slc = 0
         return self.store.read_signals(path, self.signals, l_slc, r_slc)
 
-    def compute_stats(self) -> NormStats:
-        """Per-channel mean/std from the full store (single bulk read per file)."""
-        if len(self.signals) == 0:
-            return EMPTY_STATS
-
-        sums = np.zeros(len(self.signals))
-        squares = np.zeros(len(self.signals))
-        counts = 0
-
-        for path in self.store.paths:
-            seq_len = self.store.get_seq_len(path, self.signals[0])
-            data = self.store.read_signals(path, self.signals, 0, seq_len)  # (T, C)
-            sums += data.sum(axis=0)
-            squares += (data**2).sum(axis=0)
-            counts += seq_len
-
-        means = sums / counts
-        stds = np.sqrt((squares / counts) - (means**2))
-        return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
-
 
 class ScalarAttrReader:
     """Read per-file HDF5 attributes -> (n_attrs,).  Pre-caches at init."""
@@ -156,17 +135,6 @@ class ScalarAttrReader:
 
     def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray:
         return self._cache[path]
-
-    def compute_stats(self) -> NormStats:
-        """Mean/std from pre-cached scalar attribute values."""
-        if len(self.signals) == 0:
-            return EMPTY_STATS
-
-        vals = list(self._cache.values())
-        arr = np.stack(vals)
-        means = arr.mean(axis=0)
-        stds = np.maximum(arr.std(axis=0), 1e-8)
-        return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
 
 
 class FeatureReader:
@@ -183,31 +151,6 @@ class FeatureReader:
             l_slc = 0
         data = self.store.read_signals(path, self.signals, l_slc, r_slc)
         return self.fn(data).astype(np.float32)
-
-    def compute_stats(self) -> NormStats:
-        """Mean/std by iterating store files and applying the feature fn."""
-        if len(self.signals) == 0:
-            return EMPTY_STATS
-
-        sums = None
-        squares = None
-        count = 0
-
-        for path in self.store.paths:
-            seq_len = self.store.get_seq_len(path, self.signals[0])
-            data = self.store.read_signals(path, self.signals, 0, seq_len)
-            val = self.fn(data).astype(np.float32)
-            if sums is None:
-                sums = np.zeros_like(val, dtype=np.float64)
-                squares = np.zeros_like(val, dtype=np.float64)
-            sums += val
-            squares += val**2
-            count += 1
-
-        means = sums / count
-        stds = np.sqrt((squares / count) - (means**2))
-        stds = np.maximum(stds, 1e-8)
-        return NormStats(mean=means.astype(np.float32), std=stds.astype(np.float32))
 
 
 # ---------------------------------------------------------------------------
