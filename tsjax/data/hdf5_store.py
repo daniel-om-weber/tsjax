@@ -20,6 +20,8 @@ class HDF5Store:
     """Extract mmap offsets from HDF5 files at init, then read via mmap at runtime.
 
     Fully picklable — stores only paths, offsets, shapes, and dtypes.
+    Mmap objects are cached lazily and excluded from pickle state, so they
+    are recreated automatically in grain worker processes (which use spawn).
     Falls back to h5py for chunked/compressed datasets.
     """
 
@@ -48,10 +50,27 @@ class HDF5Store:
                     if preload:
                         self._cache[path_str][name] = ds[:].astype(self.dtype)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("_mmaps", None)
+        return state
+
     @property
     def paths(self) -> list[str]:
         """Ordered file paths known to this store."""
         return list(self.entries.keys())
+
+    def _get_mmap(self, path: str, signal: str) -> np.ndarray:
+        if not hasattr(self, "_mmaps"):
+            self._mmaps: dict[tuple[str, str], np.ndarray] = {}
+        key = (path, signal)
+        if key not in self._mmaps:
+            info = self.entries[path][signal]
+            self._mmaps[key] = np.memmap(
+                path, dtype=info.dtype_str, mode="r",
+                offset=info.offset, shape=info.shape,
+            )
+        return self._mmaps[key]
 
     def read_slice(self, path: str, signal: str, l_slc: int, r_slc: int) -> np.ndarray:
         """Read a window from a signal. Thread-safe."""
@@ -60,14 +79,7 @@ class HDF5Store:
             return self._cache[path][signal][l_slc:r_slc].copy()
         info = self.entries[path][signal]
         if info.is_contiguous:
-            arr = np.memmap(
-                path,
-                dtype=info.dtype_str,
-                mode="r",
-                offset=info.offset,
-                shape=info.shape,
-            )
-            return arr[l_slc:r_slc].astype(self.dtype)
+            return np.array(self._get_mmap(path, signal)[l_slc:r_slc], dtype=self.dtype)
         else:
             with h5py.File(path, "r") as f:
                 return f[signal][l_slc:r_slc].astype(self.dtype)
