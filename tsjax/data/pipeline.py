@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,7 +58,6 @@ class GrainPipeline:
 
     valid: grain.DataLoader
     test: grain.DataLoader
-    stats: dict[str, NormStats]
     input_keys: tuple[str, ...]
     target_keys: tuple[str, ...]
     train_source: DataSource
@@ -67,6 +67,7 @@ class GrainPipeline:
     _train_ops: list = field(repr=False)
     _train_worker_count: int = field(default=0, repr=False)
     _seed: int = field(default=42, repr=False)
+    _stats_batches: int = field(default=10, repr=False)
 
     def train_loader(self, epoch: int = 0) -> grain.DataLoader:
         """Create a shuffled training DataLoader for the given epoch.
@@ -88,6 +89,11 @@ class GrainPipeline:
             worker_count=self._train_worker_count,
         )
 
+    @functools.cached_property
+    def stats(self) -> dict[str, NormStats]:
+        """Lazily compute normalization stats on first access."""
+        return compute_stats(self.valid, n_batches=self._stats_batches)
+
     @classmethod
     def from_sources(
         cls,
@@ -99,10 +105,10 @@ class GrainPipeline:
         target_keys: tuple[str, ...],
         bs: int = 64,
         seed: int = 42,
-        stats: dict[str, NormStats] | None = None,
         transforms: dict[str, Transform] | None = None,
         augmentations: dict[str, Augmentation] | None = None,
         worker_count: int = 0,
+        stats_batches: int = 10,
     ) -> GrainPipeline:
         """Build a GrainPipeline from pre-constructed DataSources.
 
@@ -113,25 +119,13 @@ class GrainPipeline:
         target_keys : Batch key names that are model targets.
         bs : Batch size.
         seed : Shuffle seed for training data.
-        stats : Pre-computed stats dict.  If None, stats are auto-computed
-            by dispatching on reader type (SequenceReader, ScalarAttrReader, etc.).
         transforms : Per-key transforms applied per-sample before batching.
         augmentations : Per-key augmentations applied to training data only.
             Each augmentation receives ``(array, rng)`` and returns an array.
         worker_count : Number of DataLoader worker processes (0 = main process).
+        stats_batches : Number of batches to sample for auto-computing stats.
         """
-        all_keys = tuple(input_keys) + tuple(target_keys)
-        user_stats = stats or {}
-
-        computed: dict[str, NormStats] = {}
-        for key in all_keys:
-            if key in user_stats:
-                computed[key] = user_stats[key]
-                continue
-            transform = transforms.get(key) if transforms else None
-            computed[key] = compute_stats(train, key, transform=transform)
-
-        # Build DataLoader operations
+        # Build DataLoader operations (transforms + augmentations + batching)
         train_ops: list = []
         valid_ops: list = []
         test_ops: list = []
@@ -158,7 +152,6 @@ class GrainPipeline:
         return cls(
             valid=valid_dl,
             test=test_dl,
-            stats=computed,
             input_keys=tuple(input_keys),
             target_keys=tuple(target_keys),
             train_source=train,
@@ -168,6 +161,7 @@ class GrainPipeline:
             _train_ops=train_ops,
             _train_worker_count=worker_count,
             _seed=seed,
+            _stats_batches=stats_batches,
         )
 
 
@@ -238,6 +232,7 @@ def create_grain_dls(
     transforms: dict[str, Transform] | None = None,
     augmentations: dict[str, Augmentation] | None = None,
     worker_count: int = 0,
+    stats_batches: int = 10,
 ) -> GrainPipeline:
     """Create Grain data pipelines yielding raw (unnormalized) data.
 
@@ -262,13 +257,14 @@ def create_grain_dls(
         Override the resampling algorithm (default: ``resample_interp``).
     transforms : dict mapping batch key names to transform functions, optional
         Per-key transforms applied to each sample before batching.
-        Stats are computed on the transformed data.
     augmentations : dict mapping batch key names to augmentation functions, optional
         Per-key augmentations applied to training data only.
         Each augmentation is ``(ndarray, Generator) -> ndarray``.
-        Applied after transforms.  Stats are computed on pre-augmentation data.
+        Applied after transforms.
     worker_count : int
         Number of DataLoader worker processes (0 = main process only).
+    stats_batches : int
+        Number of batches to sample for auto-computing stats.
     """
     all_specs = {**inputs, **targets}
 
@@ -361,14 +357,7 @@ def create_grain_dls(
             else DataSource(_DummyStore(test_files), test_readers)
         )
 
-    # Compute normalization stats from training data — one NormStats per key.
-    # For transformed keys, stats are computed on the transformed output.
-    stats: dict[str, NormStats] = {}
-    for key in all_specs:
-        transform = transforms.get(key) if transforms else None
-        stats[key] = compute_stats(train_source, key, transform=transform)
-
-    # Build DataLoader operations
+    # Build DataLoader operations (transforms + augmentations + batching)
     train_ops: list = []
     valid_ops: list = []
     test_ops: list = []
@@ -395,7 +384,6 @@ def create_grain_dls(
     return GrainPipeline(
         valid=valid_dl,
         test=test_dl,
-        stats=stats,
         input_keys=tuple(inputs),
         target_keys=tuple(targets),
         train_source=train_source,
@@ -405,6 +393,7 @@ def create_grain_dls(
         _train_ops=train_ops,
         _train_worker_count=worker_count,
         _seed=seed,
+        _stats_batches=stats_batches,
     )
 
 
