@@ -12,7 +12,7 @@ import pytest
 
 from tsjax.data.hdf5_store import HDF5Store, read_hdf5_attr
 from tsjax.data.resample import ResampledStore, resample_fft, resample_interp
-from tsjax.data.sources import DataSource, SequenceReader
+from tsjax.data.sources import FileSource, WindowedSource
 from tsjax.data.stats import compute_stats
 
 DATASET = Path(__file__).parent.parent / "test_data" / "WienerHammerstein"
@@ -167,14 +167,13 @@ class TestResampledStore:
         assert result.shape == (10, 1)
 
     def test_with_windowed_source(self, train_store):
-        """DataSource with windowing should work with ResampledStore."""
+        """WindowedSource should work with ResampledStore."""
         factor = 0.5
         rs = ResampledStore(train_store, factor=factor)
         win_sz = 20
         stp_sz = 10
 
-        readers = {"u": SequenceReader(rs, ["u"]), "y": SequenceReader(rs, ["y"])}
-        source = DataSource(rs, readers, win_sz=win_sz, stp_sz=stp_sz)
+        source = WindowedSource(rs, {"u": ["u"], "y": ["y"]}, win_sz=win_sz, stp_sz=stp_sz)
 
         # Verify window count uses resampled lengths
         path = rs.paths[0]
@@ -189,8 +188,7 @@ class TestResampledStore:
 
     def test_with_full_sequence_source(self, train_store):
         rs = ResampledStore(train_store, factor=0.5)
-        readers = {"u": SequenceReader(rs, ["u"]), "y": SequenceReader(rs, ["y"])}
-        source = DataSource(rs, readers)
+        source = FileSource(rs, {"u": ["u"], "y": ["y"]})
         item = source[0]
         expected_len = rs.get_seq_len(rs.paths[0])
         assert item["u"].shape == (expected_len, 1)
@@ -226,13 +224,8 @@ class TestReadHDF5Attr:
 class TestComputeNormStatsFromIndex:
     @staticmethod
     def _make_loader(store, bs=4):
-        readers = {"u": SequenceReader(store, ["u"]), "y": SequenceReader(store, ["y"])}
-        source = DataSource(store, readers)
-        return (
-            grain.MapDataset.source(source)
-            .batch(bs, drop_remainder=False)
-            .to_iter_dataset()
-        )
+        source = FileSource(store, {"u": ["u"], "y": ["y"]})
+        return grain.MapDataset.source(source).batch(bs, drop_remainder=False).to_iter_dataset()
 
     def test_matches_original(self, train_store):
         """Store-based stats via compute_stats should match direct h5py computation."""

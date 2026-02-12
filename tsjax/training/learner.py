@@ -75,8 +75,8 @@ class Learner:
             batch,
             n=n,
             figsize=figsize,
-            u_labels=source.readers[input_key].signals,
-            y_labels=source.readers[target_key].signals,
+            u_labels=source.signal_names.get(input_key, [input_key]),
+            y_labels=source.signal_names.get(target_key, [target_key]),
         )
 
     def show_results(self, n: int = 4, split: str = "valid", figsize=None):
@@ -118,8 +118,8 @@ class Learner:
             n=n,
             figsize=figsize,
             u=np.asarray(batch[input_key]),
-            y_labels=source.readers[target_key].signals,
-            u_labels=source.readers[input_key].signals,
+            y_labels=source.signal_names.get(target_key, [target_key]),
+            u_labels=source.signal_names.get(input_key, [input_key]),
         )
 
     def fit(self, n_epoch: int, lr: float = 3e-3, progress: bool = True):

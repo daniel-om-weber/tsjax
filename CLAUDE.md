@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-tsjax is a JAX-based training library for time series system identification, a standalone sibling of [TSFast](https://github.com/daniel-at/tsfast) (PyTorch/fastai). It reimplements the training pipeline using Flax NNX models, Grain data loading, and Optax optimization while maintaining numerical parity with TSFast. The two libraries cannot coexist in the same process (grain/sklearn mutex conflict).
+tsjax is a JAX-based training library for time series system identification, a standalone sibling of [TSFast](https://github.com/daniel-at/tsfast) (PyTorch/fastai). It reimplements the training pipeline using Flax NNX models, Grain data loading, and Optax optimization. The two libraries cannot coexist in the same process (grain/sklearn mutex conflict).
 
 ## Commands
 
@@ -28,44 +28,6 @@ pytest tests/test_training.py::test_training_reduces_loss -v
 python examples/00_minimal_example_jax.py
 ```
 
-## Architecture
-
-**Data flow** (spans multiple modules):
-```
-HDF5 files → HDF5MmapIndex (byte offsets via h5py at init, np.memmap at runtime)
-  → WindowedSource (on-the-fly windowing via bisect, no precomputed tuples)
-  → Grain MapDataset (shuffle + batch → {'u': array, 'y': array} dicts)
-  → Learner._fit() unpacks batch, feeds arrays to model
-  → RNN model (raw-in → normalize → multi-layer RNN → linear → denormalize → raw-out)
-  → Loss computed in normalized space (per-channel balanced gradients)
-  → Optax optimizer updates params
-```
-
-**Key design pattern — model-internal normalization:** Unlike TSFast (which normalizes in the data pipeline), tsjax models are self-contained raw-in/raw-out. Norm stats are stored as `Buffer` variables (custom NNX Variable type in `_core.py`, excluded from gradients). Loss functions receive raw predictions and normalize internally. This means no external denormalization is needed at inference time.
-
-**Factory pattern:** `RNNLearner(pipeline, ...)` / `GRULearner(pipeline, ...)` in `training/factory.py` create a model from pipeline norm stats, then wrap it in a `Learner`. This mirrors TSFast's API. `GRULearner` is a `functools.partial` alias.
-
-**Package structure:**
-```
-tsjax/
-    _core.py             # Buffer(nnx.Variable) — shared framework primitive
-    data/
-        index.py         # SignalIndex Protocol — format-agnostic interface
-        hdf5_index.py    # HDF5MmapIndex — HDF5/mmap implementation of SignalIndex
-        sources.py       # WindowedSource, FullSequenceSource (format-agnostic)
-        pipeline.py      # GrainPipeline, create_grain_dls (HDF5 factory)
-        stats.py         # compute_stats
-    models/              # Neural network architectures (RNN, GRU, future: TCN, PINN)
-    losses/              # Loss functions (normalized_mse, normalized_mae, rmse)
-    training/            # Learner, factory functions (RNNLearner, GRULearner)
-```
-
-**Subpackage dependency layers:**
-- **`_core`** (no internal deps): `Buffer` variable type
-- **`data/`** (no cross-subpackage deps): `index` (Protocol) ← `hdf5_index`; `index` ← `sources` → `pipeline`; `stats`
-- **`models/`** → `_core`
-- **`losses/`** (no internal deps): pure loss functions
-- **`training/`** → `models`, `data`, `losses`
 
 ## Environment
 

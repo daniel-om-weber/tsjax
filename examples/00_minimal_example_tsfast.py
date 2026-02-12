@@ -17,7 +17,9 @@ dls = create_dls(
 ).cpu()
 
 # %%
-lrn = RNNLearner(dls, rnn_type='lstm', hidden_size=64, n_skip=10)
+lrn = RNNLearner(dls, rnn_type='lstm', hidden_size=64, n_skip=40)
 lrn.fit_flat_cos(n_epoch=3, lr=1e-3)
 
+# %%
+lrn.show_results(max_n=2)
 # %%

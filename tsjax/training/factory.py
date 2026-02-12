@@ -77,8 +77,8 @@ def _classifier_show_batch(batch, *, n, figsize, source, pipeline):
         batch,
         n=n,
         figsize=figsize,
-        u_labels=source.readers[input_key].signals,
-        y_labels=source.readers[target_key].signals,
+        u_labels=source.signal_names.get(input_key, [input_key]),
+        y_labels=source.signal_names.get(target_key, [target_key]),
     )
 
 
@@ -141,7 +141,7 @@ def _regression_show_results(*, target, pred, n, figsize, batch, source, pipelin
         pred,
         n=n,
         figsize=figsize,
-        y_labels=source.readers[target_key].signals,
+        y_labels=source.signal_names.get(target_key, [target_key]),
     )
 
 

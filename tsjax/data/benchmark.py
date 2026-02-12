@@ -52,6 +52,7 @@ _VALID_DL_KWARGS = {
     "bs",
     "seed",
     "preload",
+    "store_factory",
     "resampling_factor",
     "target_fs",
     "fs_attr",
@@ -59,6 +60,7 @@ _VALID_DL_KWARGS = {
     "transforms",
     "augmentations",
     "worker_count",
+    "stats_batches",
 }
 
 

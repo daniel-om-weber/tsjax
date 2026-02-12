@@ -18,16 +18,14 @@ from .item_transforms import (
 )
 from .resample import ResampledStore, ResampleFn, resample_interp
 from .sources import (
-    DataSource,
-    Feature,
-    ReaderSpec,
-    ScalarAttr,
-    Signals,
+    FileSource,
+    WindowedSource,
 )
 from .stats import (
     NormStats,
     compute_stats,
 )
+from .store import SignalStore
 
 
 @dataclass
@@ -39,9 +37,9 @@ class GrainPipeline:
     test: grain.IterDataset
     input_keys: tuple[str, ...]
     target_keys: tuple[str, ...]
-    train_source: DataSource
-    valid_source: DataSource
-    test_source: DataSource
+    train_source: WindowedSource | FileSource
+    valid_source: WindowedSource | FileSource
+    test_source: WindowedSource | FileSource
     bs: int
     _stats_batches: int = field(default=10, repr=False)
     _n_train_batches_override: int | None = field(default=None, init=False, repr=False)
@@ -64,9 +62,9 @@ class GrainPipeline:
     @classmethod
     def from_sources(
         cls,
-        train: DataSource,
-        valid: DataSource,
-        test: DataSource,
+        train: WindowedSource | FileSource,
+        valid: WindowedSource | FileSource,
+        test: WindowedSource | FileSource,
         *,
         input_keys: tuple[str, ...],
         target_keys: tuple[str, ...],
@@ -77,11 +75,11 @@ class GrainPipeline:
         worker_count: int = 0,
         stats_batches: int = 10,
     ) -> GrainPipeline:
-        """Build a GrainPipeline from pre-constructed DataSources.
+        """Build a GrainPipeline from pre-constructed sources.
 
         Parameters
         ----------
-        train, valid, test : DataSource instances (windowed or full-seq).
+        train, valid, test : WindowedSource or FileSource instances.
         input_keys : Batch key names that are model inputs.
         target_keys : Batch key names that are model targets.
         bs : Batch size.
@@ -144,24 +142,18 @@ def _get_split_files(dataset: Path | str, split: str) -> list[str]:
     return _get_hdf_files(Path(dataset) / split)
 
 
-def _normalize_specs(
-    specs: dict[str, ReaderSpec],
-) -> dict[str, Signals | ScalarAttr | Feature]:
-    """Normalize bare ``list[str]`` specs to ``Signals`` dataclasses."""
-    return {k: Signals(v) if isinstance(v, list) else v for k, v in specs.items()}
-
-
 def create_grain_dls(
-    inputs: dict[str, ReaderSpec],
-    targets: dict[str, ReaderSpec],
+    inputs: dict[str, list[str]],
+    targets: dict[str, list[str]],
     dataset: Path | str,
     *,
-    win_sz: int | None = None,
+    win_sz: int,
     stp_sz: int = 1,
     valid_stp_sz: int | None = None,
     bs: int = 64,
     seed: int = 42,
     preload: bool = False,
+    store_factory: Callable[[list[str], list[str]], SignalStore] | None = None,
     resampling_factor: float | None = None,
     target_fs: float | None = None,
     fs_attr: str = "sampling_rate",
@@ -175,13 +167,16 @@ def create_grain_dls(
 
     Parameters
     ----------
-    inputs : dict mapping input batch key names to reader specs.
+    inputs : dict mapping input batch key names to signal lists.
         E.g. ``{"u": ["u"]}`` for the common simulation case.
-    targets : dict mapping target batch key names to reader specs.
-        E.g. ``{"y": ["y"]}`` or ``{"y": ScalarAttr(["class"])}``.
+    targets : dict mapping target batch key names to signal lists.
+        E.g. ``{"y": ["y"]}``.
     dataset : Path to dataset root containing train/valid/test splits.
-    win_sz : Window size for windowed specs.  Required when any spec
-        is a ``list[str]`` or ``Feature``.
+    win_sz : Window size (number of time steps per sample).
+    store_factory : callable, optional
+        ``(paths, signal_names) -> SignalStore``.  Defaults to
+        ``HDF5Store(paths, signal_names, preload=preload)``.
+        Use this to plug in custom stores (e.g. CSV, Parquet).
     resampling_factor : float, optional
         Uniform resampling factor applied to all files.
     target_fs : float, optional
@@ -203,18 +198,7 @@ def create_grain_dls(
     stats_batches : int
         Number of batches to sample for auto-computing stats.
     """
-    all_specs = _normalize_specs({**inputs, **targets})
-
-    # Determine if windowing is needed
-    needs_win = any(s.needs_windowing for s in all_specs.values())
-    if needs_win:
-        if win_sz is None:
-            raise ValueError(
-                "win_sz is required when any spec needs windowing (list[str] or Feature)"
-            )
-    else:
-        # All specs are ScalarAttr — file-level iteration
-        win_sz = win_sz or 0  # unused, but set for type safety
+    all_specs = {**inputs, **targets}
 
     if valid_stp_sz is None:
         valid_stp_sz = win_sz
@@ -235,71 +219,42 @@ def create_grain_dls(
                 f"(available: {set(all_specs)})"
             )
 
-    # Collect signal names needed by the store (windowed/feature specs only)
+    # Collect unique signal names
     seen: set[str] = set()
     all_signals: list[str] = []
-    for spec in all_specs.values():
-        if spec.needs_windowing:
-            for s in spec.signals:
-                if s not in seen:
-                    seen.add(s)
-                    all_signals.append(s)
+    for sig_list in all_specs.values():
+        for s in sig_list:
+            if s not in seen:
+                seen.add(s)
+                all_signals.append(s)
 
     dataset = Path(dataset)
-
-    # Build separate mmap stores per split
     train_files = _get_split_files(dataset, "train")
     valid_files = _get_split_files(dataset, "valid")
     test_files = _get_split_files(dataset, "test")
 
-    if all_signals:
-        train_store = HDF5Store(train_files, all_signals, preload=preload)
-        valid_store = HDF5Store(valid_files, all_signals, preload=preload)
-        test_store = HDF5Store(test_files, all_signals, preload=preload)
-    else:
-        # Pure scalar — no signal datasets to read
-        train_store = None
-        valid_store = None
-        test_store = None
+    # Build stores
+    _make_store = store_factory or (lambda paths, sigs: HDF5Store(paths, sigs, preload=preload))
+    train_store: SignalStore = _make_store(train_files, all_signals)
+    valid_store: SignalStore = _make_store(valid_files, all_signals)
+    test_store: SignalStore = _make_store(test_files, all_signals)
 
     # Wrap with resampling if requested
-    if train_store is not None:
-        factor: float | Callable[[str], float] | None = resampling_factor
-        if target_fs is not None:
-            from .hdf5_store import read_hdf5_attr
+    factor: float | Callable[[str], float] | None = resampling_factor
+    if target_fs is not None:
+        from .hdf5_store import read_hdf5_attr
 
-            factor = lambda p: target_fs / float(read_hdf5_attr(p, fs_attr))  # noqa: E731
-        if factor is not None:
-            fn = resample_fn or resample_interp
-            train_store = ResampledStore(train_store, factor, fn)
-            valid_store = ResampledStore(valid_store, factor, fn)
-            test_store = ResampledStore(test_store, factor, fn)
+        factor = lambda p: target_fs / float(read_hdf5_attr(p, fs_attr))  # noqa: E731
+    if factor is not None:
+        fn = resample_fn or resample_interp
+        train_store = ResampledStore(train_store, factor, fn)
+        valid_store = ResampledStore(valid_store, factor, fn)
+        test_store = ResampledStore(test_store, factor, fn)
 
-    # Build readers and DataSources
-    train_readers = {k: s.build_reader(train_store, train_files) for k, s in all_specs.items()}
-    valid_readers = {k: s.build_reader(valid_store, valid_files) for k, s in all_specs.items()}
-    test_readers = {k: s.build_reader(test_store, test_files) for k, s in all_specs.items()}
-
-    if needs_win:
-        train_source = DataSource(train_store, train_readers, win_sz=win_sz, stp_sz=stp_sz)
-        valid_source = DataSource(valid_store, valid_readers, win_sz=win_sz, stp_sz=valid_stp_sz)
-        test_source = DataSource(test_store, test_readers)  # full sequence
-    else:
-        train_source = (
-            DataSource(train_store, train_readers)
-            if train_store
-            else DataSource(_DummyStore(train_files), train_readers)
-        )
-        valid_source = (
-            DataSource(valid_store, valid_readers)
-            if valid_store
-            else DataSource(_DummyStore(valid_files), valid_readers)
-        )
-        test_source = (
-            DataSource(test_store, test_readers)
-            if test_store
-            else DataSource(_DummyStore(test_files), test_readers)
-        )
+    # Build sources directly from signal specs
+    train_source = WindowedSource(train_store, all_specs, win_sz=win_sz, stp_sz=stp_sz)
+    valid_source = WindowedSource(valid_store, all_specs, win_sz=win_sz, stp_sz=valid_stp_sz)
+    test_source = FileSource(test_store, all_specs)
 
     return GrainPipeline.from_sources(
         train_source,
@@ -314,23 +269,6 @@ def create_grain_dls(
         worker_count=worker_count,
         stats_batches=stats_batches,
     )
-
-
-class _DummyStore:
-    """Minimal store for pure-scalar pipelines (no signal datasets)."""
-
-    def __init__(self, files: list[str]):
-        self._paths = list(files)
-
-    @property
-    def paths(self):
-        return self._paths
-
-    def get_seq_len(self, path, signal=None):
-        return 0
-
-    def read_signals(self, path, signals, l_slc, r_slc):
-        raise NotImplementedError("No signal datasets in a pure-scalar pipeline")
 
 
 def create_simulation_dls(

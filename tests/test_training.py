@@ -112,18 +112,71 @@ def regression_dataset(tmp_path_factory):
     return tmp
 
 
+def _make_split_files(dataset_path):
+    """Get sorted HDF5 files per split."""
+    return {
+        split: sorted(str(p) for p in (dataset_path / split).rglob("*.hdf5"))
+        for split in ("train", "valid", "test")
+    }
+
+
+def _make_classifier_pipeline(classification_dataset):
+    """Build a classifier pipeline with scalar target via manual construction."""
+    from tsjax import GrainPipeline, HDF5Store, WindowedSource
+    from tsjax.data.sources import FileSource, scalar_attrs
+
+    sf = _make_split_files(classification_dataset)
+
+    def make_source(split, windowed=True):
+        files = sf[split]
+        store = HDF5Store(files, ["sensor"])
+        specs = {"u": ["sensor"], "y": scalar_attrs(files, ["fault_class"])}
+        if windowed:
+            return WindowedSource(store, specs, win_sz=20, stp_sz=20)
+        return FileSource(store, specs)
+
+    return GrainPipeline.from_sources(
+        make_source("train"),
+        make_source("valid"),
+        make_source("test", windowed=False),
+        input_keys=("u",),
+        target_keys=("y",),
+        bs=2,
+        seed=42,
+    )
+
+
+def _make_regression_pipeline(regression_dataset):
+    """Build a regression pipeline with pure-scalar inputs/targets."""
+    from tsjax import GrainPipeline, HDF5Store
+    from tsjax.data.sources import FileSource, scalar_attrs
+
+    sf = _make_split_files(regression_dataset)
+
+    def make_source(files):
+        store = HDF5Store(files, [])
+        specs = {
+            "u": scalar_attrs(files, ["mass", "stiffness"]),
+            "y": scalar_attrs(files, ["freq"]),
+        }
+        return FileSource(store, specs)
+
+    return GrainPipeline.from_sources(
+        make_source(sf["train"]),
+        make_source(sf["valid"]),
+        make_source(sf["test"]),
+        input_keys=("u",),
+        target_keys=("y",),
+        bs=2,
+        seed=42,
+    )
+
+
 def test_classifier_learner_trains(classification_dataset):
     """ClassifierLearner should train for 1 epoch without error."""
-    from tsjax import ClassifierLearner, ScalarAttr, create_grain_dls
+    from tsjax import ClassifierLearner
 
-    pipeline = create_grain_dls(
-        inputs={"u": ["sensor"]},
-        targets={"y": ScalarAttr(["fault_class"])},
-        dataset=classification_dataset,
-        win_sz=20,
-        stp_sz=20,
-        bs=2,
-    )
+    pipeline = _make_classifier_pipeline(classification_dataset)
     lrn = ClassifierLearner(pipeline, n_classes=3, hidden_size=8, seed=42)
     lrn.fit(n_epoch=1, lr=1e-3, progress=False)
     assert len(lrn.train_losses) == 1
@@ -132,31 +185,19 @@ def test_classifier_learner_trains(classification_dataset):
 
 def test_classifier_learner_loss_is_cross_entropy(classification_dataset):
     """ClassifierLearner should use cross_entropy_loss."""
-    from tsjax import ClassifierLearner, ScalarAttr, create_grain_dls
+    from tsjax import ClassifierLearner
     from tsjax.losses.classification import cross_entropy_loss
 
-    pipeline = create_grain_dls(
-        inputs={"u": ["sensor"]},
-        targets={"y": ScalarAttr(["fault_class"])},
-        dataset=classification_dataset,
-        win_sz=20,
-        stp_sz=20,
-        bs=2,
-    )
+    pipeline = _make_classifier_pipeline(classification_dataset)
     lrn = ClassifierLearner(pipeline, n_classes=3, hidden_size=8)
     assert lrn.loss_func is cross_entropy_loss
 
 
 def test_regression_learner_trains(regression_dataset):
     """RegressionLearner should train for 1 epoch without error."""
-    from tsjax import RegressionLearner, ScalarAttr, create_grain_dls
+    from tsjax import RegressionLearner
 
-    pipeline = create_grain_dls(
-        inputs={"u": ScalarAttr(["mass", "stiffness"])},
-        targets={"y": ScalarAttr(["freq"])},
-        dataset=regression_dataset,
-        bs=2,
-    )
+    pipeline = _make_regression_pipeline(regression_dataset)
     lrn = RegressionLearner(pipeline, hidden_sizes=[8, 4], seed=42)
     lrn.fit(n_epoch=1, lr=1e-3, progress=False)
     assert len(lrn.train_losses) == 1
@@ -165,16 +206,9 @@ def test_regression_learner_trains(regression_dataset):
 
 def test_regression_learner_model_is_mlp(regression_dataset):
     """RegressionLearner should use MLP model."""
-    from tsjax import MLP, RegressionLearner, ScalarAttr, create_grain_dls
+    from tsjax import MLP, NormalizedModel, RegressionLearner
 
-    pipeline = create_grain_dls(
-        inputs={"u": ScalarAttr(["mass", "stiffness"])},
-        targets={"y": ScalarAttr(["freq"])},
-        dataset=regression_dataset,
-        bs=2,
-    )
+    pipeline = _make_regression_pipeline(regression_dataset)
     lrn = RegressionLearner(pipeline, hidden_sizes=[8])
-    from tsjax import NormalizedModel
-
     assert isinstance(lrn.model, NormalizedModel)
     assert isinstance(lrn.model.model, MLP)

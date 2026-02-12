@@ -7,11 +7,11 @@
 from pathlib import Path
 
 from tsjax import (
-    DataSource,
+    FileSource,
     GrainPipeline,
     HDF5Store,
     RNNLearner,
-    SequenceReader,
+    WindowedSource,
     create_grain_dls,
     rmse,
 )
@@ -66,20 +66,9 @@ store_train = HDF5Store(train_files, ["u", "y"], preload=True)
 store_valid = HDF5Store(valid_files, ["u", "y"], preload=True)
 store_test = HDF5Store(test_files, ["u", "y"], preload=True)
 
-train_src = DataSource(store_train, {
-    "u": SequenceReader(store_train, ["u"]),
-    "y": SequenceReader(store_train, ["y"]),
-}, win_sz=500, stp_sz=10)
-
-valid_src = DataSource(store_valid, {
-    "u": SequenceReader(store_valid, ["u"]),
-    "y": SequenceReader(store_valid, ["y"]),
-}, win_sz=500, stp_sz=10)
-
-test_src = DataSource(store_test, {
-    "u": SequenceReader(store_test, ["u"]),
-    "y": SequenceReader(store_test, ["y"]),
-})  # no win_sz → full sequence per file
+train_src = WindowedSource(store_train, {"u": ["u"], "y": ["y"]}, win_sz=500, stp_sz=10)
+valid_src = WindowedSource(store_valid, {"u": ["u"], "y": ["y"]}, win_sz=500, stp_sz=10)
+test_src = FileSource(store_test, {"u": ["u"], "y": ["y"]})
 
 pipeline_explicit = GrainPipeline.from_sources(
     train_src, valid_src, test_src,
