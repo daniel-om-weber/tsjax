@@ -9,6 +9,7 @@ from .data import NormStats as NormStats
 from .data import ResampledStore as ResampledStore
 from .data import SignalInfo as SignalInfo
 from .data import SignalStore as SignalStore
+from .data import WeightedMapDataset as WeightedMapDataset
 from .data import WindowedSource as WindowedSource
 from .data import bias_injection as bias_injection
 from .data import chain_augmentations as chain_augmentations
@@ -25,6 +26,7 @@ from .data import resample_interp as resample_interp
 from .data import scalar_attrs as scalar_attrs
 from .data import seq_slice as seq_slice
 from .data import stft_transform as stft_transform
+from .data import uniform_file_weights as uniform_file_weights
 from .data import varying_noise as varying_noise
 from .losses import cross_entropy_loss as cross_entropy_loss
 from .losses import normalized_mae as normalized_mae

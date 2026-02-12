@@ -12,6 +12,7 @@ import numpy as np
 
 from .hdf5_store import HDF5Store, discover_split_files
 from .resample import ResampledStore, ResampleFn, resample_interp
+from .sampling import WeightedMapDataset
 from .sources import WindowedSource
 from .stats import (
     NormStats,
@@ -51,6 +52,7 @@ class GrainPipeline:
         target_keys: tuple[str, ...],
         bs: int = 64,
         seed: int = 42,
+        weights: np.ndarray | Sequence[float] | None = None,
         transform: Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]] | None = None,
         augmentation: (
             Callable[[dict[str, np.ndarray], np.random.Generator], dict[str, np.ndarray]] | None
@@ -67,6 +69,9 @@ class GrainPipeline:
         target_keys : Batch key names that are model targets.
         bs : Batch size.
         seed : Shuffle seed for training data.
+        weights : Per-element sampling weights for the training set.
+            Higher-weight elements appear more often per epoch.  When
+            ``None`` (default), all elements are sampled uniformly.
         transform : Optional function applied per-sample before batching
             (all splits). Signature: ``(sample_dict) -> sample_dict``.
         augmentation : Optional function applied to training data only.
@@ -74,7 +79,11 @@ class GrainPipeline:
         worker_count : Number of worker processes for training (0 = main process).
         """
         # Train: infinite shuffled with optional augmentations
-        train_ds = grain.MapDataset.source(train).seed(seed).shuffle().repeat(None)
+        train_ds = grain.MapDataset.source(train)
+        if weights is not None:
+            train_ds = train_ds.pipe(WeightedMapDataset, weights=weights)
+        n_train = len(train_ds)
+        train_ds = train_ds.seed(seed).shuffle().repeat(None)
         if transform:
             train_ds = train_ds.map(transform)
         if augmentation:
@@ -103,7 +112,7 @@ class GrainPipeline:
             test=test_iter,
             input_keys=tuple(input_keys),
             target_keys=tuple(target_keys),
-            n_train_batches=len(train) // bs,
+            n_train_batches=n_train // bs,
             signal_names=getattr(train, "signal_names", {}),
         )
 
@@ -127,6 +136,7 @@ def create_grain_dls(
     target_fs: float | None = None,
     fs_attr: str = "sampling_rate",
     resample_fn: ResampleFn | None = None,
+    weights: np.ndarray | Sequence[float] | Callable[[WindowedSource], np.ndarray] | None = None,
     transform: Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]] | None = None,
     augmentation: (
         Callable[[dict[str, np.ndarray], np.random.Generator], dict[str, np.ndarray]] | None
@@ -166,6 +176,11 @@ def create_grain_dls(
         Only used when *target_fs* is set.
     resample_fn : callable, optional
         Override the resampling algorithm (default: ``resample_interp``).
+    weights : array-like or callable, optional
+        Per-element sampling weights for the training set.  Higher-weight
+        elements appear more often per epoch.  When a callable, it is
+        called with the train ``WindowedSource`` to compute the weights
+        (e.g. ``weights=uniform_file_weights``).
     transform : callable, optional
         Per-sample transform applied before batching (all splits).
         Signature: ``(sample_dict) -> sample_dict``.
@@ -229,6 +244,9 @@ def create_grain_dls(
     valid_source = WindowedSource(valid_store, all_specs, win_sz=win_sz, stp_sz=valid_stp_sz)
     test_source = WindowedSource(test_store, all_specs)
 
+    # Resolve callable weights (e.g. uniform_file_weights)
+    resolved_weights = weights(train_source) if callable(weights) else weights
+
     return GrainPipeline.from_sources(
         train_source,
         valid_source,
@@ -237,6 +255,7 @@ def create_grain_dls(
         target_keys=tuple(targets),
         bs=bs,
         seed=seed,
+        weights=resolved_weights,
         transform=transform,
         augmentation=augmentation,
         worker_count=worker_count,

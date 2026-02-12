@@ -20,6 +20,8 @@ from .pipeline import create_simulation_dls as create_simulation_dls
 from .resample import ResampledStore as ResampledStore
 from .resample import resample_fft as resample_fft
 from .resample import resample_interp as resample_interp
+from .sampling import WeightedMapDataset as WeightedMapDataset
+from .sampling import uniform_file_weights as uniform_file_weights
 from .sources import WindowedSource as WindowedSource
 from .sources import scalar_attrs as scalar_attrs
 from .stats import EMPTY_STATS as EMPTY_STATS
