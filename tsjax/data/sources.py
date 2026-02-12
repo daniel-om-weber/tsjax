@@ -47,9 +47,7 @@ def _scalar_attrs_reader(
     return _read_hdf5_attrs(path, attr_names)
 
 
-def scalar_attrs(
-    paths: list[str], attr_names: list[str]
-) -> functools.partial[np.ndarray]:
+def scalar_attrs(paths: list[str], attr_names: list[str]) -> functools.partial[np.ndarray]:
     """Read HDF5 scalar attributes and return a picklable callable.
 
     Parameters

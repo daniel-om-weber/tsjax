@@ -16,6 +16,8 @@ from .data import compute_stats as compute_stats
 from .data import create_grain_dls as create_grain_dls
 from .data import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .data import create_simulation_dls as create_simulation_dls
+from .data import discover_split_files as discover_split_files
+from .data import get_hdf_files as get_hdf_files
 from .data import grouped_noise as grouped_noise
 from .data import noise_injection as noise_injection
 from .data import resample_fft as resample_fft

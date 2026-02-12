@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -67,8 +68,11 @@ class HDF5Store:
         if key not in self._mmaps:
             info = self.entries[path][signal]
             self._mmaps[key] = np.memmap(
-                path, dtype=info.dtype_str, mode="r",
-                offset=info.offset, shape=info.shape,
+                path,
+                dtype=info.dtype_str,
+                mode="r",
+                offset=info.offset,
+                shape=info.shape,
             )
         return self._mmaps[key]
 
@@ -94,6 +98,39 @@ class HDF5Store:
         if signal is None:
             signal = self.signal_names[0]
         return self.entries[str(path)][signal].shape[0]
+
+
+_HDF_EXTENSIONS = {".hdf5", ".h5"}
+
+
+def get_hdf_files(path: Path | str) -> list[str]:
+    """Get sorted HDF5 file paths from a directory (recursive).
+
+    Returns absolute string paths for all ``*.hdf5`` and ``*.h5`` files.
+    """
+    return sorted(str(p) for p in Path(path).rglob("*") if p.suffix in _HDF_EXTENSIONS)
+
+
+def discover_split_files(
+    dataset: Path | str,
+) -> tuple[list[str], list[str], list[str]]:
+    """Discover HDF5 files using the ``train/valid/test`` directory convention.
+
+    Parameters
+    ----------
+    dataset : Path to dataset root containing ``train/``, ``valid/``, and
+        ``test/`` subdirectories.
+
+    Returns
+    -------
+    train_files, valid_files, test_files : tuple of three sorted file lists.
+    """
+    root = Path(dataset)
+    return (
+        get_hdf_files(root / "train"),
+        get_hdf_files(root / "valid"),
+        get_hdf_files(root / "test"),
+    )
 
 
 def read_hdf5_attr(path: str, key: str, dtype: type = np.float32) -> np.floating:

@@ -102,8 +102,11 @@ def test_lstm_output_shape():
     from tsjax import RNN
 
     model = RNN(
-        input_size=2, output_size=3, hidden_size=8,
-        cell_type=nnx.OptimizedLSTMCell, rngs=nnx.Rngs(0),
+        input_size=2,
+        output_size=3,
+        hidden_size=8,
+        cell_type=nnx.OptimizedLSTMCell,
+        rngs=nnx.Rngs(0),
     )
     x = jnp.ones((2, 10, 2))
     out = model(x)
@@ -114,9 +117,7 @@ def test_multilayer_rnn():
     """Multi-layer RNN should produce correct shape without error."""
     from tsjax import RNN
 
-    model = RNN(
-        input_size=1, output_size=1, hidden_size=8, num_layers=2, rngs=nnx.Rngs(0)
-    )
+    model = RNN(input_size=1, output_size=1, hidden_size=8, num_layers=2, rngs=nnx.Rngs(0))
     x = jnp.ones((2, 20, 1))
     out = model(x)
     assert out.shape == (2, 20, 1)

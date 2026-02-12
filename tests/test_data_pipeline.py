@@ -357,3 +357,134 @@ def test_stats_numerically_stable_large_offset(tmp_path):
     assert ns.std[0] > 0, "std should be positive"
     np.testing.assert_allclose(ns.mean[0], expected_mean, rtol=1e-5)
     np.testing.assert_allclose(ns.std[0], expected_std, rtol=1e-2)
+
+
+# ---------------------------------------------------------------------------
+# discover_split_files / get_hdf_files
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverSplitFiles:
+    def test_discovers_standard_layout(self, dataset_path):
+        from tsjax import discover_split_files
+
+        train, valid, test = discover_split_files(dataset_path)
+        assert len(train) > 0
+        assert len(valid) > 0
+        assert len(test) > 0
+        assert all(f.endswith((".hdf5", ".h5")) for f in train + valid + test)
+
+    def test_files_are_sorted(self, dataset_path):
+        from tsjax import discover_split_files
+
+        train, valid, test = discover_split_files(dataset_path)
+        assert train == sorted(train)
+        assert valid == sorted(valid)
+        assert test == sorted(test)
+
+    def test_get_hdf_files_single_dir(self, dataset_path):
+        from tsjax import get_hdf_files
+
+        train_files = get_hdf_files(dataset_path / "train")
+        assert len(train_files) > 0
+        assert all(f.endswith((".hdf5", ".h5")) for f in train_files)
+
+
+# ---------------------------------------------------------------------------
+# Explicit file lists
+# ---------------------------------------------------------------------------
+
+
+class TestExplicitFileLists:
+    def test_create_grain_dls_with_file_lists(self, dataset_path):
+        """Pipeline created with explicit file lists should work identically."""
+        from tsjax import create_grain_dls, discover_split_files
+
+        train, valid, test = discover_split_files(dataset_path)
+        pl = create_grain_dls(
+            inputs={"u": ["u"]},
+            targets={"y": ["y"]},
+            win_sz=20,
+            stp_sz=10,
+            bs=4,
+            train_files=train,
+            valid_files=valid,
+            test_files=test,
+        )
+        batch = next(iter(pl.train))
+        assert batch["u"].shape == (4, 20, 1)
+        assert batch["y"].shape == (4, 20, 1)
+
+    def test_simulation_dls_with_file_lists(self, dataset_path):
+        from tsjax import create_simulation_dls, discover_split_files
+
+        train, valid, test = discover_split_files(dataset_path)
+        pl = create_simulation_dls(
+            u=["u"],
+            y=["y"],
+            win_sz=20,
+            stp_sz=10,
+            bs=4,
+            train_files=train,
+            valid_files=valid,
+            test_files=test,
+        )
+        batch = next(iter(pl.train))
+        assert batch["u"].shape == (4, 20, 1)
+
+    def test_file_lists_and_dataset_raises(self, dataset_path):
+        from tsjax import create_grain_dls, discover_split_files
+
+        train, valid, test = discover_split_files(dataset_path)
+        with pytest.raises(ValueError, match="not both"):
+            create_grain_dls(
+                inputs={"u": ["u"]},
+                targets={"y": ["y"]},
+                dataset=dataset_path,
+                win_sz=20,
+                train_files=train,
+                valid_files=valid,
+                test_files=test,
+            )
+
+    def test_partial_file_lists_raises(self, dataset_path):
+        from tsjax import create_grain_dls, discover_split_files
+
+        train, valid, _test = discover_split_files(dataset_path)
+        with pytest.raises(ValueError, match="All three"):
+            create_grain_dls(
+                inputs={"u": ["u"]},
+                targets={"y": ["y"]},
+                win_sz=20,
+                train_files=train,
+                valid_files=valid,
+            )
+
+    def test_no_dataset_no_files_raises(self):
+        from tsjax import create_grain_dls
+
+        with pytest.raises(ValueError, match="Provide either"):
+            create_grain_dls(
+                inputs={"u": ["u"]},
+                targets={"y": ["y"]},
+                win_sz=20,
+            )
+
+    def test_mixed_file_lists(self, dataset_path):
+        """File lists can freely mix files from different splits."""
+        from tsjax import create_grain_dls, discover_split_files
+
+        train, valid, test = discover_split_files(dataset_path)
+        # Use valid files for training (would be impossible with dataset=)
+        pl = create_grain_dls(
+            inputs={"u": ["u"]},
+            targets={"y": ["y"]},
+            win_sz=20,
+            stp_sz=10,
+            bs=4,
+            train_files=valid,
+            valid_files=train,
+            test_files=test,
+        )
+        batch = next(iter(pl.train))
+        assert batch["u"].shape == (4, 20, 1)

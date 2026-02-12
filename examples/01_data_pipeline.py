@@ -12,6 +12,7 @@ from tsjax import (
     RNNLearner,
     WindowedSource,
     create_grain_dls,
+    discover_split_files,
     rmse,
 )
 
@@ -57,9 +58,7 @@ print(f"u: {batch['u'].shape}")  # (16, 500, 2)
 # Use this when you need custom stores, readers, or non-standard splits.
 
 # %%
-train_files = sorted(str(p) for p in (DATASET / "train").rglob("*.hdf5"))
-valid_files = sorted(str(p) for p in (DATASET / "valid").rglob("*.hdf5"))
-test_files = sorted(str(p) for p in (DATASET / "test").rglob("*.hdf5"))
+train_files, valid_files, test_files = discover_split_files(DATASET)
 
 store_train = HDF5Store(train_files, ["u", "y"], preload=True)
 store_valid = HDF5Store(valid_files, ["u", "y"], preload=True)

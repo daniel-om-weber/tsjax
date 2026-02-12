@@ -8,9 +8,10 @@ from pathlib import Path
 
 from tsjax import (
     ClassifierLearner,
+    GrainPipeline,
     HDF5Store,
     WindowedSource,
-    GrainPipeline,
+    discover_split_files,
     scalar_attrs,
 )
 
@@ -22,9 +23,7 @@ DATASET = Path(__file__).resolve().parent.parent / "test_data/DampedSinusoids"
 # Sequential input "u" with per-file scalar target "class".
 
 # %%
-train_files = sorted(str(p) for p in (DATASET / "train").rglob("*.hdf5"))
-valid_files = sorted(str(p) for p in (DATASET / "valid").rglob("*.hdf5"))
-test_files = sorted(str(p) for p in (DATASET / "test").rglob("*.hdf5"))
+train_files, valid_files, test_files = discover_split_files(DATASET)
 
 signals = ["u"]
 

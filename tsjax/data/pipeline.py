@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import grain
 import numpy as np
 
-from .hdf5_store import HDF5Store
+from .hdf5_store import HDF5Store, discover_split_files
 from .resample import ResampledStore, ResampleFn, resample_interp
 from .sources import WindowedSource
 from .stats import (
@@ -123,21 +123,10 @@ class GrainPipeline:
         )
 
 
-def _get_hdf_files(path: Path) -> list[str]:
-    """Get sorted HDF5 files from a directory."""
-    extensions = {".hdf5", ".h5"}
-    return sorted(str(p) for p in path.rglob("*") if p.suffix in extensions)
-
-
-def _get_split_files(dataset: Path | str, split: str) -> list[str]:
-    """Get sorted HDF5 files for a specific split (train/valid/test)."""
-    return _get_hdf_files(Path(dataset) / split)
-
-
 def create_grain_dls(
     inputs: dict[str, list[str]],
     targets: dict[str, list[str]],
-    dataset: Path | str,
+    dataset: Path | str | None = None,
     *,
     win_sz: int,
     stp_sz: int = 1,
@@ -145,6 +134,9 @@ def create_grain_dls(
     bs: int = 64,
     seed: int = 42,
     preload: bool = False,
+    train_files: Sequence[str] | None = None,
+    valid_files: Sequence[str] | None = None,
+    test_files: Sequence[str] | None = None,
     store_factory: Callable[[list[str], list[str]], SignalStore] | None = None,
     resampling_factor: float | None = None,
     target_fs: float | None = None,
@@ -159,6 +151,10 @@ def create_grain_dls(
 ) -> GrainPipeline:
     """Create Grain data pipelines yielding raw (unnormalized) data.
 
+    Provide either ``dataset`` (auto-discovers files from ``train/``,
+    ``valid/``, ``test/`` subdirectories) **or** explicit file lists via
+    ``train_files``, ``valid_files``, ``test_files``.
+
     Parameters
     ----------
     inputs : dict mapping input batch key names to signal lists.
@@ -166,7 +162,12 @@ def create_grain_dls(
     targets : dict mapping target batch key names to signal lists.
         E.g. ``{"y": ["y"]}``.
     dataset : Path to dataset root containing train/valid/test splits.
+        Mutually exclusive with *train_files*/*valid_files*/*test_files*.
     win_sz : Window size (number of time steps per sample).
+    train_files, valid_files, test_files : explicit file path lists.
+        When provided, *dataset* must be ``None``.  Use
+        :func:`discover_split_files` to get these from a standard layout,
+        then filter/merge before passing them here.
     store_factory : callable, optional
         ``(paths, signal_names) -> SignalStore``.  Defaults to
         ``HDF5Store(paths, signal_names, preload=preload)``.
@@ -206,16 +207,28 @@ def create_grain_dls(
                 seen.add(s)
                 all_signals.append(s)
 
-    dataset = Path(dataset)
-    train_files = _get_split_files(dataset, "train")
-    valid_files = _get_split_files(dataset, "valid")
-    test_files = _get_split_files(dataset, "test")
+    # Resolve file lists
+    has_explicit = train_files is not None or valid_files is not None or test_files is not None
+    if has_explicit and dataset is not None:
+        raise ValueError("Provide either 'dataset' or explicit file lists, not both.")
+    if has_explicit:
+        if train_files is None or valid_files is None or test_files is None:
+            raise ValueError(
+                "All three file lists (train_files, valid_files, test_files) must be provided."
+            )
+        _train_files = list(train_files)
+        _valid_files = list(valid_files)
+        _test_files = list(test_files)
+    elif dataset is not None:
+        _train_files, _valid_files, _test_files = discover_split_files(dataset)
+    else:
+        raise ValueError("Provide either 'dataset' or explicit file lists.")
 
     # Build stores
     _make_store = store_factory or (lambda paths, sigs: HDF5Store(paths, sigs, preload=preload))
-    train_store: SignalStore = _make_store(train_files, all_signals)
-    valid_store: SignalStore = _make_store(valid_files, all_signals)
-    test_store: SignalStore = _make_store(test_files, all_signals)
+    train_store: SignalStore = _make_store(_train_files, all_signals)
+    valid_store: SignalStore = _make_store(_valid_files, all_signals)
+    test_store: SignalStore = _make_store(_test_files, all_signals)
 
     # Wrap with resampling if requested
     factor: float | Callable[[str], float] | None = resampling_factor
@@ -252,7 +265,7 @@ def create_grain_dls(
 def create_simulation_dls(
     u: list[str],
     y: list[str],
-    dataset: Path | str,
+    dataset: Path | str | None = None,
     *,
     win_sz: int = 100,
     **kw,

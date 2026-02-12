@@ -4,6 +4,8 @@ from .benchmark import BENCHMARK_DL_KWARGS as BENCHMARK_DL_KWARGS
 from .benchmark import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .hdf5_store import HDF5Store as HDF5Store
 from .hdf5_store import SignalInfo as SignalInfo
+from .hdf5_store import discover_split_files as discover_split_files
+from .hdf5_store import get_hdf_files as get_hdf_files
 from .hdf5_store import read_hdf5_attr as read_hdf5_attr
 from .item_transforms import bias_injection as bias_injection
 from .item_transforms import chain_augmentations as chain_augmentations

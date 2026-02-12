@@ -15,6 +15,7 @@ import numpy as np
 from tsjax import (
     HDF5Store,
     WindowedSource,
+    discover_split_files,
     noise_injection,
 )
 
@@ -27,12 +28,7 @@ DATASET = Path(__file__).resolve().parent.parent / "test_data/WienerHammerstein"
 # `preload=False` uses memory-mapped reads (better for large datasets).
 
 # %%
-def hdf5_files(split: str) -> list[str]:
-    return sorted(str(p) for p in (DATASET / split).rglob("*.hdf5"))
-
-train_files = hdf5_files("train")
-valid_files = hdf5_files("valid")
-test_files  = hdf5_files("test")
+train_files, valid_files, test_files = discover_split_files(DATASET)
 
 signals = ["u", "y"]
 store_train = HDF5Store(train_files, signals, preload=True)

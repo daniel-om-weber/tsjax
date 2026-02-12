@@ -138,9 +138,7 @@ class ResampledStore:
             self._cache[key] = self.resample_fn(raw[:, 0], factor)
         return self._cache[key]
 
-    def read_signals(
-        self, path: str, signals: list[str], l_slc: int, r_slc: int
-    ) -> np.ndarray:
+    def read_signals(self, path: str, signals: list[str], l_slc: int, r_slc: int) -> np.ndarray:
         """Read resampled signals, slicing from cached full sequences."""
         arrays = [self._get_resampled(path, s)[l_slc:r_slc] for s in signals]
         return np.stack(arrays, axis=-1)

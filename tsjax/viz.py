@@ -251,16 +251,12 @@ def plot_classification_results(
 
     for col in range(n):
         ax = axes[0, col]
-        colors = [
-            "#4CAF50" if i == target[col] else "#90CAF9" for i in range(n_classes)
-        ]
+        colors = ["#4CAF50" if i == target[col] else "#90CAF9" for i in range(n_classes)]
         ax.bar(x_pos, probs[col], color=colors)
         ax.set_xticks(x_pos)
         ax.set_xticklabels(class_names, fontsize="small")
         pred_cls = int(np.argmax(probs[col]))
-        ax.set_title(
-            f"True: {class_names[target[col]]}, Pred: {class_names[pred_cls]}"
-        )
+        ax.set_title(f"True: {class_names[target[col]]}, Pred: {class_names[pred_cls]}")
         ax.set_ylim(0, 1)
 
     axes[0, 0].set_ylabel("Probability")
@@ -309,9 +305,7 @@ def plot_regression_scatter(
         lo = min(target[:, i].min(), pred[:, i].min())
         hi = max(target[:, i].max(), pred[:, i].max())
         margin = (hi - lo) * 0.05 or 0.1
-        ax.plot(
-            [lo - margin, hi + margin], [lo - margin, hi + margin], "k--", alpha=0.4
-        )
+        ax.plot([lo - margin, hi + margin], [lo - margin, hi + margin], "k--", alpha=0.4)
         ax.set_xlabel(f"Actual ({y_labels[i]})")
         ax.set_ylabel(f"Predicted ({y_labels[i]})")
         ax.set_title(y_labels[i])

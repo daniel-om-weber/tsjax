@@ -110,9 +110,7 @@ class TestPlotScalarBatch:
 
     def test_with_labels(self):
         batch = {"u": np.random.randn(4, 30, 2), "y": np.random.randn(4, 1)}
-        fig, axes = plot_scalar_batch(
-            batch, n=2, u_labels=["a", "b"], y_labels=["class"]
-        )
+        fig, axes = plot_scalar_batch(batch, n=2, u_labels=["a", "b"], y_labels=["class"])
         assert axes.shape == (1, 2)
         plt.close(fig)
 
@@ -135,9 +133,7 @@ class TestPlotClassificationResults:
     def test_with_class_names(self):
         target = np.array([0, 1])
         pred = np.random.randn(2, 2)
-        fig, axes = plot_classification_results(
-            target, pred, n=2, class_names=["cat", "dog"]
-        )
+        fig, axes = plot_classification_results(target, pred, n=2, class_names=["cat", "dog"])
         assert axes.shape == (1, 2)
         plt.close(fig)
 
@@ -174,9 +170,7 @@ class TestPlotRegressionScatter:
     def test_with_labels(self):
         target = np.random.randn(10, 2)
         pred = np.random.randn(10, 2)
-        fig, axes = plot_regression_scatter(
-            target, pred, y_labels=["freq", "amp"]
-        )
+        fig, axes = plot_regression_scatter(target, pred, y_labels=["freq", "amp"])
         assert axes.shape == (1, 2)
         plt.close(fig)
 
@@ -193,7 +187,9 @@ class TestLearnerCallbacks:
         from tsjax import RNN, Learner
 
         model = RNN(
-            input_size=1, output_size=1, hidden_size=8,
+            input_size=1,
+            output_size=1,
+            hidden_size=8,
             rngs=nnx.Rngs(0),
         )
         called = {}
@@ -214,14 +210,14 @@ class TestLearnerCallbacks:
         from tsjax import RNN, Learner
 
         model = RNN(
-            input_size=1, output_size=1, hidden_size=8,
+            input_size=1,
+            output_size=1,
+            hidden_size=8,
             rngs=nnx.Rngs(0),
         )
         called = {}
 
-        def custom_results_fn(
-            *, target, pred, n, figsize, batch, source, pipeline
-        ):
+        def custom_results_fn(*, target, pred, n, figsize, batch, source, pipeline):
             called["yes"] = True
             fig, axes = plt.subplots(1, 1)
             return fig, np.array([[axes]])
