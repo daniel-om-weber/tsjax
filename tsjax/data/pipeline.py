@@ -29,22 +29,9 @@ class GrainPipeline:
     test: grain.IterDataset
     input_keys: tuple[str, ...]
     target_keys: tuple[str, ...]
-    train_source: WindowedSource
-    valid_source: WindowedSource
-    test_source: WindowedSource
-    bs: int
+    n_train_batches: int
+    signal_names: dict[str, list[str]] = field(default_factory=dict)
     _stats_batches: int = field(default=10, repr=False)
-    _n_train_batches_override: int | None = field(default=None, init=False, repr=False)
-
-    @property
-    def n_train_batches(self) -> int:
-        if self._n_train_batches_override is not None:
-            return self._n_train_batches_override
-        return len(self.train_source) // self.bs
-
-    @n_train_batches.setter
-    def n_train_batches(self, value: int) -> None:
-        self._n_train_batches_override = value
 
     @functools.cached_property
     def stats(self) -> dict[str, NormStats]:
@@ -54,9 +41,9 @@ class GrainPipeline:
     @classmethod
     def from_sources(
         cls,
-        train: WindowedSource,
-        valid: WindowedSource,
-        test: WindowedSource,
+        train: grain.RandomAccessDataSource,
+        valid: grain.RandomAccessDataSource,
+        test: grain.RandomAccessDataSource,
         *,
         input_keys: tuple[str, ...],
         target_keys: tuple[str, ...],
@@ -73,7 +60,8 @@ class GrainPipeline:
 
         Parameters
         ----------
-        train, valid, test : WindowedSource instances.
+        train, valid, test : Any grain-compatible random-access sources
+            (``__len__`` + ``__getitem__``).
         input_keys : Batch key names that are model inputs.
         target_keys : Batch key names that are model targets.
         bs : Batch size.
@@ -115,10 +103,8 @@ class GrainPipeline:
             test=test_iter,
             input_keys=tuple(input_keys),
             target_keys=tuple(target_keys),
-            train_source=train,
-            valid_source=valid,
-            test_source=test,
-            bs=bs,
+            n_train_batches=len(train) // bs,
+            signal_names=getattr(train, "signal_names", {}),
             _stats_batches=stats_batches,
         )
 

@@ -194,7 +194,7 @@ class TestLearnerCallbacks:
         )
         called = {}
 
-        def custom_batch_fn(batch, *, n, figsize, source, pipeline):
+        def custom_batch_fn(batch, *, n, figsize, signal_names, pipeline):
             called["yes"] = True
             fig, axes = plt.subplots(1, 1)
             return fig, np.array([[axes]])
@@ -217,7 +217,7 @@ class TestLearnerCallbacks:
         )
         called = {}
 
-        def custom_results_fn(*, target, pred, n, figsize, batch, source, pipeline):
+        def custom_results_fn(*, target, pred, n, figsize, batch, signal_names, pipeline):
             called["yes"] = True
             fig, axes = plt.subplots(1, 1)
             return fig, np.array([[axes]])

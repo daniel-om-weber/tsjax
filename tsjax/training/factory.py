@@ -68,7 +68,7 @@ GRULearner = partial(RNNLearner, cell_type=nnx.GRUCell)
 # ---------------------------------------------------------------------------
 
 
-def _classifier_show_batch(batch, *, n, figsize, source, pipeline):
+def _classifier_show_batch(batch, *, n, figsize, signal_names, pipeline):
     from tsjax.viz import plot_scalar_batch
 
     input_key = pipeline.input_keys[0]
@@ -77,12 +77,12 @@ def _classifier_show_batch(batch, *, n, figsize, source, pipeline):
         batch,
         n=n,
         figsize=figsize,
-        u_labels=source.signal_names.get(input_key, [input_key]),
-        y_labels=source.signal_names.get(target_key, [target_key]),
+        u_labels=signal_names.get(input_key, [input_key]),
+        y_labels=signal_names.get(target_key, [target_key]),
     )
 
 
-def _classifier_show_results(*, target, pred, n, figsize, batch, source, pipeline):
+def _classifier_show_results(*, target, pred, n, figsize, batch, signal_names, pipeline):
     from tsjax.viz import plot_classification_results
 
     return plot_classification_results(target, pred, n=n, figsize=figsize)
@@ -132,7 +132,7 @@ def ClassifierLearner(
 # ---------------------------------------------------------------------------
 
 
-def _regression_show_results(*, target, pred, n, figsize, batch, source, pipeline):
+def _regression_show_results(*, target, pred, n, figsize, batch, signal_names, pipeline):
     from tsjax.viz import plot_regression_scatter
 
     target_key = pipeline.target_keys[0]
@@ -141,7 +141,7 @@ def _regression_show_results(*, target, pred, n, figsize, batch, source, pipelin
         pred,
         n=n,
         figsize=figsize,
-        y_labels=source.signal_names.get(target_key, [target_key]),
+        y_labels=signal_names.get(target_key, [target_key]),
     )
 
 

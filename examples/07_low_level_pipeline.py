@@ -106,10 +106,8 @@ pipeline = GrainPipeline(
     test=test_ds,
     input_keys=("u",),
     target_keys=("y",),
-    train_source=train_src,
-    valid_source=valid_src,
-    test_source=test_src,
-    bs=BS,
+    n_train_batches=len(train_src) // BS,
+    signal_names=train_src.signal_names,
 )
 
 batch = next(iter(pipeline.train))

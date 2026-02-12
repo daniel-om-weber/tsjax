@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+import grain
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -38,15 +39,15 @@ class Learner:
         self.valid_losses: list[float] = []
         self.valid_metrics: dict[str, list[float]] = {m.__name__: [] for m in metrics}
 
-    def _get_ds_and_source(self, split: str):
-        """Return (iterable, source) for the given split name."""
+    def _get_ds(self, split: str) -> grain.IterDataset:
+        """Return the IterDataset for the given split name."""
         match split:
             case "train":
-                return self.pipeline.train, self.pipeline.train_source
+                return self.pipeline.train
             case "valid":
-                return self.pipeline.valid, self.pipeline.valid_source
+                return self.pipeline.valid
             case "test":
-                return self.pipeline.test, self.pipeline.test_source
+                return self.pipeline.test
             case _:
                 raise ValueError(f"Unknown split: {split!r}. Use 'train', 'valid', or 'test'.")
 
@@ -59,12 +60,13 @@ class Learner:
         split : One of "train", "valid", "test".
         figsize : Matplotlib figure size override.
         """
-        ds, source = self._get_ds_and_source(split)
+        ds = self._get_ds(split)
         batch = next(iter(ds))
+        snames = self.pipeline.signal_names
 
         if self.plot_batch_fn is not None:
             return self.plot_batch_fn(
-                batch, n=n, figsize=figsize, source=source, pipeline=self.pipeline
+                batch, n=n, figsize=figsize, signal_names=snames, pipeline=self.pipeline
             )
 
         from tsjax.viz import plot_batch
@@ -75,8 +77,8 @@ class Learner:
             batch,
             n=n,
             figsize=figsize,
-            u_labels=source.signal_names.get(input_key, [input_key]),
-            y_labels=source.signal_names.get(target_key, [target_key]),
+            u_labels=snames.get(input_key, [input_key]),
+            y_labels=snames.get(target_key, [target_key]),
         )
 
     def show_results(self, n: int = 4, split: str = "valid", figsize=None):
@@ -88,7 +90,7 @@ class Learner:
         split : One of "train", "valid", "test".
         figsize : Matplotlib figure size override.
         """
-        ds, source = self._get_ds_and_source(split)
+        ds = self._get_ds(split)
         batch = next(iter(ds))
         target_key = self.pipeline.target_keys[0]
         inputs = {k: jnp.asarray(batch[k]) for k in self.pipeline.input_keys}
@@ -98,6 +100,7 @@ class Learner:
             pred = pred[:, self.n_skip :]
             y = y[:, self.n_skip :]
 
+        snames = self.pipeline.signal_names
         if self.plot_results_fn is not None:
             return self.plot_results_fn(
                 target=y,
@@ -105,7 +108,7 @@ class Learner:
                 n=n,
                 figsize=figsize,
                 batch=batch,
-                source=source,
+                signal_names=snames,
                 pipeline=self.pipeline,
             )
 
@@ -118,8 +121,8 @@ class Learner:
             n=n,
             figsize=figsize,
             u=np.asarray(batch[input_key]),
-            y_labels=source.signal_names.get(target_key, [target_key]),
-            u_labels=source.signal_names.get(input_key, [input_key]),
+            y_labels=snames.get(target_key, [target_key]),
+            u_labels=snames.get(input_key, [input_key]),
         )
 
     def fit(self, n_epoch: int, lr: float = 3e-3, progress: bool = True):
