@@ -108,12 +108,14 @@ class TestPipelineWithTransforms:
         )
 
         np.testing.assert_allclose(
-            pl_scaled.stats["u"].mean, pl_base.stats["u"].mean * 2, atol=1e-4
+            pl_scaled.stats()["u"].mean, pl_base.stats()["u"].mean * 2, atol=1e-4
         )
-        np.testing.assert_allclose(pl_scaled.stats["u"].std, pl_base.stats["u"].std * 2, atol=1e-4)
+        np.testing.assert_allclose(
+            pl_scaled.stats()["u"].std, pl_base.stats()["u"].std * 2, atol=1e-4
+        )
         # y stats should be unchanged
-        np.testing.assert_array_equal(pl_scaled.stats["y"].mean, pl_base.stats["y"].mean)
-        np.testing.assert_array_equal(pl_scaled.stats["y"].std, pl_base.stats["y"].std)
+        np.testing.assert_array_equal(pl_scaled.stats()["y"].mean, pl_base.stats()["y"].mean)
+        np.testing.assert_array_equal(pl_scaled.stats()["y"].std, pl_base.stats()["y"].std)
 
     def test_shape_changing_transform(self, transform_dataset):
         """A transform that reduces (win_sz, 1) -> (1,)."""
@@ -198,8 +200,12 @@ class TestPipelineStatsWithTransform:
         )
 
         # Scaled mean should be ~3x raw mean, scaled std should be ~3x raw std
-        np.testing.assert_allclose(pl_scaled.stats["u"].mean, pl_raw.stats["u"].mean * 3, atol=1e-3)
-        np.testing.assert_allclose(pl_scaled.stats["u"].std, pl_raw.stats["u"].std * 3, atol=1e-2)
+        np.testing.assert_allclose(
+            pl_scaled.stats()["u"].mean, pl_raw.stats()["u"].mean * 3, atol=1e-3
+        )
+        np.testing.assert_allclose(
+            pl_scaled.stats()["u"].std, pl_raw.stats()["u"].std * 3, atol=1e-2
+        )
 
     def test_stats_dtype_always_float32(self, transform_dataset):
         from tsjax.data.pipeline import create_grain_dls
@@ -214,8 +220,8 @@ class TestPipelineStatsWithTransform:
             transform=lambda item: {**item, "u": item["u"] * 100},
         )
 
-        assert pl.stats["u"].mean.dtype == np.float32
-        assert pl.stats["u"].std.dtype == np.float32
+        assert pl.stats()["u"].mean.dtype == np.float32
+        assert pl.stats()["u"].std.dtype == np.float32
 
 
 # ---------------------------------------------------------------------------
@@ -439,8 +445,8 @@ class TestPipelineWithAugmentations:
             stp_sz=20,
             bs=2,
         )
-        np.testing.assert_array_equal(pl_aug.stats["u"].mean, pl_base.stats["u"].mean)
-        np.testing.assert_array_equal(pl_aug.stats["u"].std, pl_base.stats["u"].std)
+        np.testing.assert_array_equal(pl_aug.stats()["u"].mean, pl_base.stats()["u"].mean)
+        np.testing.assert_array_equal(pl_aug.stats()["u"].std, pl_base.stats()["u"].std)
 
     def test_augmentation_modifies_train_data(self, transform_dataset):
         """Augmented training data should differ from non-augmented."""
@@ -494,7 +500,7 @@ class TestPipelineWithAugmentations:
             transform=lambda item: {**item, "u": item["u"] * 2},
         )
         # Stats should match (augmentations don't affect stats)
-        np.testing.assert_array_equal(pl.stats["u"].mean, pl_xform_only.stats["u"].mean)
+        np.testing.assert_array_equal(pl.stats()["u"].mean, pl_xform_only.stats()["u"].mean)
         # Valid data should match (augmentations are train-only)
         np.testing.assert_array_equal(
             next(iter(pl.valid))["u"], next(iter(pl_xform_only.valid))["u"]

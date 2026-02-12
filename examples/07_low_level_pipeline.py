@@ -113,7 +113,7 @@ pipeline = GrainPipeline(
 batch = next(iter(pipeline.train))
 print(f"Train batch — u: {batch['u'].shape}, y: {batch['y'].shape}")
 
-for key, s in pipeline.stats.items():
+for key, s in pipeline.stats().items():
     print(f"{key}: mean={s.mean}, std={s.std}")
 
 # %% [markdown]

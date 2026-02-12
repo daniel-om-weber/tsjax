@@ -107,12 +107,12 @@ def test_multiworker_train_loader(dataset_path):
 
 def test_pipeline_has_norm_stats(pipeline):
     """Pipeline should expose finite norm stats with correct length."""
-    assert len(pipeline.stats["u"].mean) == 1
-    assert len(pipeline.stats["u"].std) == 1
-    assert len(pipeline.stats["y"].mean) == 1
-    assert len(pipeline.stats["y"].std) == 1
-    assert np.all(np.isfinite(pipeline.stats["u"].mean))
-    assert np.all(pipeline.stats["u"].std > 0)
+    assert len(pipeline.stats()["u"].mean) == 1
+    assert len(pipeline.stats()["u"].std) == 1
+    assert len(pipeline.stats()["y"].mean) == 1
+    assert len(pipeline.stats()["y"].std) == 1
+    assert np.all(np.isfinite(pipeline.stats()["u"].mean))
+    assert np.all(pipeline.stats()["u"].std > 0)
 
 
 def test_pipeline_has_key_metadata(pipeline):

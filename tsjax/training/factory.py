@@ -22,8 +22,8 @@ def create_rnn(
     seed: int = 0,
 ) -> NormalizedModel:
     """Create RNN model with norm stats inferred from pipeline."""
-    u_stats = pipeline.stats[pipeline.input_keys[0]]
-    y_stats = pipeline.stats[pipeline.target_keys[0]]
+    u_stats = pipeline.stats()[pipeline.input_keys[0]]
+    y_stats = pipeline.stats()[pipeline.target_keys[0]]
     input_size = len(u_stats.mean)
     output_size = len(y_stats.mean)
 
@@ -99,7 +99,7 @@ def ClassifierLearner(
     metrics: list = [],
 ) -> Learner:
     """Create Learner with RNN + LastPool model + cross-entropy loss."""
-    u_stats = pipeline.stats[pipeline.input_keys[0]]
+    u_stats = pipeline.stats()[pipeline.input_keys[0]]
     input_size = len(u_stats.mean)
 
     rnn = RNN(
@@ -153,8 +153,8 @@ def RegressionLearner(
     metrics: list = [],
 ) -> Learner:
     """Create Learner with MLP model for scalar regression."""
-    u_stats = pipeline.stats[pipeline.input_keys[0]]
-    y_stats = pipeline.stats[pipeline.target_keys[0]]
+    u_stats = pipeline.stats()[pipeline.input_keys[0]]
+    y_stats = pipeline.stats()[pipeline.target_keys[0]]
     input_size = len(u_stats.mean)
     output_size = len(y_stats.mean)
 

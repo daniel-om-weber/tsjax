@@ -31,12 +31,14 @@ class GrainPipeline:
     target_keys: tuple[str, ...]
     n_train_batches: int
     signal_names: dict[str, list[str]] = field(default_factory=dict)
-    _stats_batches: int = field(default=10, repr=False)
 
-    @functools.cached_property
-    def stats(self) -> dict[str, NormStats]:
-        """Lazily compute normalization stats on first access."""
-        return compute_stats(self.valid, n_batches=self._stats_batches)
+    def __hash__(self) -> int:
+        return id(self)
+
+    @functools.cache
+    def stats(self, n_batches: int = 10) -> dict[str, NormStats]:
+        """Compute normalization stats from the validation set (cached)."""
+        return compute_stats(self.valid, n_batches=n_batches)
 
     @classmethod
     def from_sources(
@@ -54,7 +56,6 @@ class GrainPipeline:
             Callable[[dict[str, np.ndarray], np.random.Generator], dict[str, np.ndarray]] | None
         ) = None,
         worker_count: int = 0,
-        stats_batches: int = 10,
     ) -> GrainPipeline:
         """Build a GrainPipeline from pre-constructed sources.
 
@@ -71,7 +72,6 @@ class GrainPipeline:
         augmentation : Optional function applied to training data only.
             Signature: ``(sample_dict, rng) -> sample_dict``.
         worker_count : Number of worker processes for training (0 = main process).
-        stats_batches : Number of batches to sample for auto-computing stats.
         """
         # Train: infinite shuffled with optional augmentations
         train_ds = grain.MapDataset.source(train).seed(seed).shuffle().repeat(None)
@@ -105,7 +105,6 @@ class GrainPipeline:
             target_keys=tuple(target_keys),
             n_train_batches=len(train) // bs,
             signal_names=getattr(train, "signal_names", {}),
-            _stats_batches=stats_batches,
         )
 
 
@@ -133,7 +132,6 @@ def create_grain_dls(
         Callable[[dict[str, np.ndarray], np.random.Generator], dict[str, np.ndarray]] | None
     ) = None,
     worker_count: int = 0,
-    stats_batches: int = 10,
 ) -> GrainPipeline:
     """Create Grain data pipelines yielding raw (unnormalized) data.
 
@@ -176,8 +174,6 @@ def create_grain_dls(
         Signature: ``(sample_dict, rng) -> sample_dict``.
     worker_count : int
         Number of DataLoader worker processes (0 = main process only).
-    stats_batches : int
-        Number of batches to sample for auto-computing stats.
     """
     all_specs = {**inputs, **targets}
 
@@ -244,7 +240,6 @@ def create_grain_dls(
         transform=transform,
         augmentation=augmentation,
         worker_count=worker_count,
-        stats_batches=stats_batches,
     )
 
 

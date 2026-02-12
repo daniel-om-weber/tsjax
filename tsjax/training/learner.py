@@ -152,7 +152,7 @@ class Learner:
     def _fit(self, n_epoch: int, tx, progress: bool = True):
         """Internal training loop."""
         target_key = self.pipeline.target_keys[0]
-        target_stats = self.pipeline.stats[target_key]
+        target_stats = self.pipeline.stats()[target_key]
         y_mean = jnp.asarray(target_stats.mean)
         y_std = jnp.asarray(target_stats.std)
         input_keys = self.pipeline.input_keys

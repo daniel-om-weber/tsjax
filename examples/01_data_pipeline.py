@@ -34,7 +34,7 @@ pipeline = create_grain_dls(
 
 batch = next(iter(pipeline.train))
 print(f"u: {batch['u'].shape}, y: {batch['y'].shape}")
-print(f"u stats: mean={pipeline.stats['u'].mean}, std={pipeline.stats['u'].std}")
+print(f"u stats: mean={pipeline.stats()['u'].mean}, std={pipeline.stats()['u'].std}")
 
 # %% [markdown]
 # ## Multi-signal inputs

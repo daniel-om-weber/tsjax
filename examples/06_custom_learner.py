@@ -53,8 +53,8 @@ print(f"y: {batch['y'].shape}")  # (16, 1)       — scalar per window
 # the model with input normalization and output denormalization.
 
 # %%
-u_stats = pipeline.stats["u"]
-y_stats = pipeline.stats["y"]
+u_stats = pipeline.stats()["u"]
+y_stats = pipeline.stats()["y"]
 
 rnn = RNN(input_size=1, output_size=1, hidden_size=64, rngs=nnx.Rngs(0))
 model = NormalizedModel(

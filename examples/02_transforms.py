@@ -34,7 +34,7 @@ pipeline = create_grain_dls(
     transform=lambda item: {**item, "u": cumsum_transform(item["u"])},
 )
 
-print(f"u stats (cumsum): mean={pipeline.stats['u'].mean}, std={pipeline.stats['u'].std}")
+print(f"u stats (cumsum): mean={pipeline.stats()['u'].mean}, std={pipeline.stats()['u'].std}")
 
 # %% [markdown]
 # ## Built-in STFT transform
@@ -79,8 +79,8 @@ pipeline_aug = create_grain_dls(
 )
 
 # Stats are identical — augmentations don't affect them
-print(f"u mean (no aug):   {pipeline.stats['u'].mean}")
-print(f"u mean (with aug): {pipeline_aug.stats['u'].mean}")
+print(f"u mean (no aug):   {pipeline.stats()['u'].mean}")
+print(f"u mean (with aug): {pipeline_aug.stats()['u'].mean}")
 
 # %%
 lrn = RNNLearner(pipeline_aug, hidden_size=64, n_skip=10, metrics=[rmse])

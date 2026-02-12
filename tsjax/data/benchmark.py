@@ -63,7 +63,6 @@ _VALID_DL_KWARGS = {
     "transform",
     "augmentation",
     "worker_count",
-    "stats_batches",
 }
 
 
