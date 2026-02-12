@@ -4,7 +4,7 @@
 # components, bypassing all factory functions and `GrainPipeline`.
 #
 # This shows every layer of the stack:
-# `HDF5Store` → `WindowedSource`/`FileSource` → `grain.MapDataset` chain
+# `HDF5Store` → `WindowedSource` → `grain.MapDataset` chain
 
 # %%
 from pathlib import Path
@@ -13,7 +13,6 @@ import grain
 import numpy as np
 
 from tsjax import (
-    FileSource,
     HDF5Store,
     WindowedSource,
     noise_injection,
@@ -42,19 +41,15 @@ store_test  = HDF5Store(test_files,  signals, preload=True)
 
 # %% [markdown]
 # ## 2. Sources — Grain-compatible `__getitem__`
-# `WindowedSource` yields sliding windows; `FileSource` yields one full
-# sequence per file.
-#
-# Pass signal specs as `dict[str, list[str] | Callable]`:
-# - `list[str]` reads those signals from the store
-# - Any `(path, l_slc, r_slc) -> ndarray` callable works as a custom reader
+# `WindowedSource` yields sliding windows (when `win_sz` is set)
+# or full files (when `win_sz=None`).
 
 # %%
 WIN_SZ, STP_SZ, BS = 500, 10, 16
 
 train_src = WindowedSource(store_train, {"u": ["u"], "y": ["y"]}, win_sz=WIN_SZ, stp_sz=STP_SZ)
 valid_src = WindowedSource(store_valid, {"u": ["u"], "y": ["y"]}, win_sz=WIN_SZ, stp_sz=WIN_SZ)
-test_src  = FileSource(store_test, {"u": ["u"], "y": ["y"]})
+test_src  = WindowedSource(store_test, {"u": ["u"], "y": ["y"]})  # full files
 
 print(f"Train windows: {len(train_src)}, Valid: {len(valid_src)}, Test files: {len(test_src)}")
 
@@ -104,7 +99,7 @@ test_ds = (
 # %% [markdown]
 # ## 4. Wrap in GrainPipeline
 # The hand-built datasets slot straight into `GrainPipeline`.
-# This gives you `.stats`, `.n_train_batches`, `show_batch`, etc.
+# This gives you `.stats`, `.n_train_batches`, etc.
 
 # %%
 from tsjax import GrainPipeline
@@ -128,28 +123,23 @@ for key, s in pipeline.stats.items():
     print(f"{key}: mean={s.mean}, std={s.std}")
 
 # %% [markdown]
-# ## 5. Custom reader example
-# Any callable `(path, l_slc, r_slc) -> ndarray` works as a reader.
-# Here's a reader that computes the RMS energy of a window as a scalar feature.
+# ## 5. Custom transforms via grain `.map()`
+# Any per-sample computation can be added as a grain transform.
+# Here's a transform that adds the RMS energy of u as an extra feature.
 
 # %%
-from dataclasses import dataclass
+def add_rms_feature(sample):
+    """Compute RMS energy of u and add as a new key."""
+    u = sample["u"]
+    rms = np.sqrt(np.mean(u ** 2, axis=0, keepdims=True))
+    return {**sample, "u_rms": rms.astype(np.float32)}
 
-@dataclass(frozen=True)
-class RMSReader:
-    """Custom reader: compute RMS energy of a signal window -> (1,)."""
-    store: HDF5Store
-    signal: str
+custom_ds = (
+    grain.MapDataset.source(train_src)
+    .map(add_rms_feature)
+    .batch(BS, drop_remainder=True)
+    .to_iter_dataset()
+)
 
-    def __call__(self, path, l_slc, r_slc):
-        data = self.store.read_signals(path, [self.signal], l_slc, r_slc)
-        return np.array([np.sqrt(np.mean(data ** 2))], dtype=np.float32)
-
-custom_src = WindowedSource(store_train, {
-    "u": ["u"],
-    "y": ["y"],
-    "u_rms": RMSReader(store_train, "u"),
-}, win_sz=WIN_SZ, stp_sz=STP_SZ)
-
-sample = custom_src[0]
-print(f"Custom source — u: {sample['u'].shape}, u_rms: {sample['u_rms'].shape}")
+batch = next(iter(custom_ds))
+print(f"Custom transform — u: {batch['u'].shape}, u_rms: {batch['u_rms'].shape}")

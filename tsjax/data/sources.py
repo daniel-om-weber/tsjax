@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bisect
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -10,13 +11,6 @@ import h5py
 import numpy as np
 
 from .store import SignalStore
-
-# ---------------------------------------------------------------------------
-# Type alias
-# ---------------------------------------------------------------------------
-
-ReaderFn = Callable[[str, int, int], np.ndarray]
-"""Callable reader: ``(path, l_slc, r_slc) -> ndarray``."""
 
 # ---------------------------------------------------------------------------
 # Internal picklable reader for list[str] signal specs
@@ -35,21 +29,27 @@ class _StoreReader:
 
 
 # ---------------------------------------------------------------------------
-# Helper reader factories (return picklable callables)
+# Scalar attribute reader (picklable via functools.partial)
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ScalarAttrs:
-    """Pre-cached per-file scalar attributes -> ``(n_attrs,)``."""
-
-    _cache: dict[str, np.ndarray]
-
-    def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray:
-        return self._cache[path]
+@functools.lru_cache(maxsize=None)
+def _read_hdf5_attrs(path: str, attr_names: tuple[str, ...]) -> np.ndarray:
+    """Read scalar attributes from an HDF5 file (cached per path+attrs)."""
+    with h5py.File(path, "r") as f:
+        vals = [float(f.attrs[a]) for a in attr_names]
+    return np.array(vals, dtype=np.float32)
 
 
-def scalar_attrs(paths: list[str], attr_names: list[str]) -> ScalarAttrs:
+def _scalar_attrs_reader(
+    attr_names: tuple[str, ...], path: str, l_slc: int, r_slc: int
+) -> np.ndarray:
+    return _read_hdf5_attrs(path, attr_names)
+
+
+def scalar_attrs(
+    paths: list[str], attr_names: list[str]
+) -> functools.partial[np.ndarray]:
     """Read HDF5 scalar attributes and return a picklable callable.
 
     Parameters
@@ -61,59 +61,24 @@ def scalar_attrs(paths: list[str], attr_names: list[str]) -> ScalarAttrs:
 
     Returns
     -------
-    ScalarAttrs
-        Callable ``(path, l_slc, r_slc) -> ndarray`` of shape ``(len(attr_names),)``.
+    callable
+        ``(path, l_slc, r_slc) -> ndarray`` of shape ``(len(attr_names),)``.
     """
-    cache: dict[str, np.ndarray] = {}
+    attr_tuple = tuple(attr_names)
     for path in paths:
-        with h5py.File(path, "r") as f:
-            vals = [float(f.attrs[a]) for a in attr_names]
-        cache[path] = np.array(vals, dtype=np.float32)
-    return ScalarAttrs(cache)
-
-
-@dataclass(frozen=True)
-class SignalFeature:
-    """Read windowed signals, apply reduction -> ``(n_features,)``."""
-
-    store: SignalStore
-    signals: list[str]
-    fn: Callable
-
-    def __call__(self, path: str, l_slc: int, r_slc: int) -> np.ndarray:
-        data = self.store.read_signals(path, self.signals, l_slc, r_slc)
-        return self.fn(data).astype(np.float32)
-
-
-def signal_feature(store: SignalStore, signals: list[str], fn: Callable) -> SignalFeature:
-    """Create a picklable callable that reads signals and applies a reduction.
-
-    Parameters
-    ----------
-    store : SignalStore
-        Store to read signals from.
-    signals : list[str]
-        Signal names to read.
-    fn : callable
-        Reduction function ``(win_sz, n_signals) -> (n_features,)``.
-
-    Returns
-    -------
-    SignalFeature
-        Callable ``(path, l_slc, r_slc) -> ndarray``.
-    """
-    return SignalFeature(store, signals, fn)
+        _read_hdf5_attrs(path, attr_tuple)  # pre-warm cache + validate
+    return functools.partial(_scalar_attrs_reader, attr_tuple)
 
 
 # ---------------------------------------------------------------------------
-# Grain-compatible sources
+# Internal helpers
 # ---------------------------------------------------------------------------
 
 
 def _normalize_signals(
     store: SignalStore,
-    signals: dict[str, list[str] | ReaderFn],
-) -> tuple[dict[str, ReaderFn], dict[str, list[str]], str | None]:
+    signals: dict[str, list[str] | Callable[[str, int, int], np.ndarray]],
+) -> tuple[dict[str, Callable], dict[str, list[str]], str | None]:
     """Convert a mixed signal dict into uniform callables.
 
     Returns ``(readers, signal_keys, ref_signal)`` where:
@@ -122,7 +87,7 @@ def _normalize_signals(
     - *signal_keys*: key -> signal names for ``list[str]`` entries (for validation)
     - *ref_signal*: first signal from the first ``list[str]`` entry, or ``None``
     """
-    readers: dict[str, ReaderFn] = {}
+    readers: dict[str, Callable] = {}
     signal_keys: dict[str, list[str]] = {}
     ref_signal: str | None = None
     for key, spec in signals.items():
@@ -136,22 +101,30 @@ def _normalize_signals(
     return readers, signal_keys, ref_signal
 
 
+# ---------------------------------------------------------------------------
+# Grain-compatible source
+# ---------------------------------------------------------------------------
+
+
 class WindowedSource:
-    """Grain-compatible source for sliding-window time series iteration.
+    """Grain-compatible source for time series iteration.
 
     Maps a global index to a (file, window_start, window_end) triple,
     then calls each reader to extract that window.
 
-    Window formula matches tsfast/data/core.py:150:
+    When ``win_sz=None``, operates in full-file mode: each index maps to
+    one file and readers receive ``(0, seq_len)`` bounds.
+
+    Window formula (when ``win_sz`` is set):
         n_win = max(0, (seq_len - win_sz) // stp_sz + 1)
     """
 
     def __init__(
         self,
         store: SignalStore,
-        signals: dict[str, list[str] | ReaderFn],
+        signals: dict[str, list[str] | Callable[[str, int, int], np.ndarray]],
         *,
-        win_sz: int,
+        win_sz: int | None = None,
         stp_sz: int = 1,
     ):
         self.store = store
@@ -166,17 +139,25 @@ class WindowedSource:
             raise ValueError("At least one list[str] signal entry is required")
         self.ref_signal = ref_signal
 
-        # Build cumulative window index
-        self.file_paths: list[str] = []
-        self.cum_windows: list[int] = []
-        total = 0
-        for path in store.paths:
-            seq_len = store.get_seq_len(path, ref_signal)
-            n_win = max(0, (seq_len - win_sz) // stp_sz + 1)
-            total += n_win
-            self.file_paths.append(path)
-            self.cum_windows.append(total)
-        self._len = total
+        self.file_paths: list[str] = list(store.paths)
+
+        if win_sz is None:
+            # Full-file mode: one sample per file
+            self._len = len(self.file_paths)
+            self._seq_lens = [store.get_seq_len(p, ref_signal) for p in self.file_paths]
+            self.cum_windows: list[int] = []
+        else:
+            # Windowed mode: sliding windows over files
+            self.cum_windows = []
+            self._seq_lens = []
+            total = 0
+            for path in self.file_paths:
+                seq_len = store.get_seq_len(path, ref_signal)
+                n_win = max(0, (seq_len - win_sz) // stp_sz + 1)
+                total += n_win
+                self.cum_windows.append(total)
+                self._seq_lens.append(seq_len)
+            self._len = total
 
         self._validate_lengths()
 
@@ -204,6 +185,13 @@ class WindowedSource:
         return self._len
 
     def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
+        if self.win_sz is None:
+            # Full-file mode
+            path = self.file_paths[idx]
+            seq_len = self._seq_lens[idx]
+            return {key: reader(path, 0, seq_len) for key, reader in self._readers.items()}
+
+        # Windowed mode
         file_idx = bisect.bisect_right(self.cum_windows, idx)
         prev = self.cum_windows[file_idx - 1] if file_idx > 0 else 0
         local_win = idx - prev
@@ -211,45 +199,3 @@ class WindowedSource:
         r_slc = l_slc + self.win_sz
         path = self.file_paths[file_idx]
         return {key: reader(path, l_slc, r_slc) for key, reader in self._readers.items()}
-
-
-class FileSource:
-    """Grain-compatible source for one-sample-per-file iteration.
-
-    Each index maps to one file.  Readers receive ``(0, seq_len)`` bounds.
-    """
-
-    def __init__(
-        self,
-        store: SignalStore,
-        signals: dict[str, list[str] | ReaderFn],
-    ):
-        self.store = store
-        readers, signal_keys, ref_signal = _normalize_signals(store, signals)
-        self._readers = readers
-        self._signal_keys = signal_keys
-        self.file_paths = list(store.paths)
-        self._ref_signal = ref_signal
-        self._seq_lens = self._compute_seq_lens()
-
-    @property
-    def signal_names(self) -> dict[str, list[str]]:
-        """Signal names for ``list[str]`` entries (used for plot labels)."""
-        return dict(self._signal_keys)
-
-    def _compute_seq_lens(self) -> list[int]:
-        if self._ref_signal is None:
-            return [0] * len(self.file_paths)  # pure-scalar, seq_len unused
-        return [self.store.get_seq_len(p, self._ref_signal) for p in self.file_paths]
-
-    def __len__(self) -> int:
-        return len(self.file_paths)
-
-    def __getitem__(self, idx: int) -> dict[str, np.ndarray]:
-        path = self.file_paths[idx]
-        seq_len = self._seq_lens[idx]
-        return {key: reader(path, 0, seq_len) for key, reader in self._readers.items()}
-
-
-DataSource = WindowedSource | FileSource
-"""Type alias for Grain-compatible time series sources."""

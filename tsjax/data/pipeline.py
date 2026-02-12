@@ -8,19 +8,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import grain
+import numpy as np
 
 from .hdf5_store import HDF5Store
-from .item_transforms import (
-    Augmentation,
-    Transform,
-    _apply_augmentations,
-    _apply_transforms,
-)
 from .resample import ResampledStore, ResampleFn, resample_interp
-from .sources import (
-    FileSource,
-    WindowedSource,
-)
+from .sources import WindowedSource
 from .stats import (
     NormStats,
     compute_stats,
@@ -37,9 +29,9 @@ class GrainPipeline:
     test: grain.IterDataset
     input_keys: tuple[str, ...]
     target_keys: tuple[str, ...]
-    train_source: WindowedSource | FileSource
-    valid_source: WindowedSource | FileSource
-    test_source: WindowedSource | FileSource
+    train_source: WindowedSource
+    valid_source: WindowedSource
+    test_source: WindowedSource
     bs: int
     _stats_batches: int = field(default=10, repr=False)
     _n_train_batches_override: int | None = field(default=None, init=False, repr=False)
@@ -62,16 +54,18 @@ class GrainPipeline:
     @classmethod
     def from_sources(
         cls,
-        train: WindowedSource | FileSource,
-        valid: WindowedSource | FileSource,
-        test: WindowedSource | FileSource,
+        train: WindowedSource,
+        valid: WindowedSource,
+        test: WindowedSource,
         *,
         input_keys: tuple[str, ...],
         target_keys: tuple[str, ...],
         bs: int = 64,
         seed: int = 42,
-        transforms: dict[str, Transform] | None = None,
-        augmentations: dict[str, Augmentation] | None = None,
+        transform: Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]] | None = None,
+        augmentation: (
+            Callable[[dict[str, np.ndarray], np.random.Generator], dict[str, np.ndarray]] | None
+        ) = None,
         worker_count: int = 0,
         stats_batches: int = 10,
     ) -> GrainPipeline:
@@ -79,26 +73,24 @@ class GrainPipeline:
 
         Parameters
         ----------
-        train, valid, test : WindowedSource or FileSource instances.
+        train, valid, test : WindowedSource instances.
         input_keys : Batch key names that are model inputs.
         target_keys : Batch key names that are model targets.
         bs : Batch size.
         seed : Shuffle seed for training data.
-        transforms : Per-key transforms applied per-sample before batching.
-        augmentations : Per-key augmentations applied to training data only.
-            Each augmentation receives ``(array, rng)`` and returns an array.
+        transform : Optional function applied per-sample before batching
+            (all splits). Signature: ``(sample_dict) -> sample_dict``.
+        augmentation : Optional function applied to training data only.
+            Signature: ``(sample_dict, rng) -> sample_dict``.
         worker_count : Number of worker processes for training (0 = main process).
         stats_batches : Number of batches to sample for auto-computing stats.
         """
-        transform_fn = _apply_transforms(transforms) if transforms else None
-        augment_fn = _apply_augmentations(augmentations) if augmentations else None
-
         # Train: infinite shuffled with optional augmentations
         train_ds = grain.MapDataset.source(train).seed(seed).shuffle().repeat(None)
-        if transform_fn:
-            train_ds = train_ds.map(transform_fn)
-        if augment_fn:
-            train_ds = train_ds.random_map(augment_fn)
+        if transform:
+            train_ds = train_ds.map(transform)
+        if augmentation:
+            train_ds = train_ds.random_map(augmentation)
         train_iter = train_ds.batch(bs, drop_remainder=True).to_iter_dataset()
         if worker_count > 0:
             train_iter = train_iter.mp_prefetch(
@@ -107,14 +99,14 @@ class GrainPipeline:
 
         # Valid: sequential, no augmentations
         valid_ds = grain.MapDataset.source(valid)
-        if transform_fn:
-            valid_ds = valid_ds.map(transform_fn)
+        if transform:
+            valid_ds = valid_ds.map(transform)
         valid_iter = valid_ds.batch(bs, drop_remainder=False).to_iter_dataset()
 
         # Test: sequential, batch_size=1
         test_ds = grain.MapDataset.source(test)
-        if transform_fn:
-            test_ds = test_ds.map(transform_fn)
+        if transform:
+            test_ds = test_ds.map(transform)
         test_iter = test_ds.batch(1, drop_remainder=False).to_iter_dataset()
 
         return cls(
@@ -158,8 +150,10 @@ def create_grain_dls(
     target_fs: float | None = None,
     fs_attr: str = "sampling_rate",
     resample_fn: ResampleFn | None = None,
-    transforms: dict[str, Transform] | None = None,
-    augmentations: dict[str, Augmentation] | None = None,
+    transform: Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]] | None = None,
+    augmentation: (
+        Callable[[dict[str, np.ndarray], np.random.Generator], dict[str, np.ndarray]] | None
+    ) = None,
     worker_count: int = 0,
     stats_batches: int = 10,
 ) -> GrainPipeline:
@@ -187,12 +181,12 @@ def create_grain_dls(
         Only used when *target_fs* is set.
     resample_fn : callable, optional
         Override the resampling algorithm (default: ``resample_interp``).
-    transforms : dict mapping batch key names to transform functions, optional
-        Per-key transforms applied to each sample before batching.
-    augmentations : dict mapping batch key names to augmentation functions, optional
-        Per-key augmentations applied to training data only.
-        Each augmentation is ``(ndarray, Generator) -> ndarray``.
-        Applied after transforms.
+    transform : callable, optional
+        Per-sample transform applied before batching (all splits).
+        Signature: ``(sample_dict) -> sample_dict``.
+    augmentation : callable, optional
+        Training-only augmentation applied after transforms.
+        Signature: ``(sample_dict, rng) -> sample_dict``.
     worker_count : int
         Number of DataLoader worker processes (0 = main process only).
     stats_batches : int
@@ -202,22 +196,6 @@ def create_grain_dls(
 
     if valid_stp_sz is None:
         valid_stp_sz = win_sz
-
-    # Validate transform keys
-    if transforms:
-        unknown = set(transforms) - set(all_specs)
-        if unknown:
-            raise ValueError(
-                f"Transform keys {unknown} not found in inputs/targets "
-                f"(available: {set(all_specs)})"
-            )
-    if augmentations:
-        unknown = set(augmentations) - set(all_specs)
-        if unknown:
-            raise ValueError(
-                f"Augmentation keys {unknown} not found in inputs/targets "
-                f"(available: {set(all_specs)})"
-            )
 
     # Collect unique signal names
     seen: set[str] = set()
@@ -254,7 +232,7 @@ def create_grain_dls(
     # Build sources directly from signal specs
     train_source = WindowedSource(train_store, all_specs, win_sz=win_sz, stp_sz=stp_sz)
     valid_source = WindowedSource(valid_store, all_specs, win_sz=win_sz, stp_sz=valid_stp_sz)
-    test_source = FileSource(test_store, all_specs)
+    test_source = WindowedSource(test_store, all_specs)
 
     return GrainPipeline.from_sources(
         train_source,
@@ -264,8 +242,8 @@ def create_grain_dls(
         target_keys=tuple(targets),
         bs=bs,
         seed=seed,
-        transforms=transforms,
-        augmentations=augmentations,
+        transform=transform,
+        augmentation=augmentation,
         worker_count=worker_count,
         stats_batches=stats_batches,
     )

@@ -12,7 +12,7 @@ import pytest
 
 from tsjax.data.hdf5_store import HDF5Store, read_hdf5_attr
 from tsjax.data.resample import ResampledStore, resample_fft, resample_interp
-from tsjax.data.sources import FileSource, WindowedSource
+from tsjax.data.sources import WindowedSource
 from tsjax.data.stats import compute_stats
 
 DATASET = Path(__file__).parent.parent / "test_data" / "WienerHammerstein"
@@ -188,7 +188,7 @@ class TestResampledStore:
 
     def test_with_full_sequence_source(self, train_store):
         rs = ResampledStore(train_store, factor=0.5)
-        source = FileSource(rs, {"u": ["u"], "y": ["y"]})
+        source = WindowedSource(rs, {"u": ["u"], "y": ["y"]})
         item = source[0]
         expected_len = rs.get_seq_len(rs.paths[0])
         assert item["u"].shape == (expected_len, 1)
@@ -224,7 +224,7 @@ class TestReadHDF5Attr:
 class TestComputeNormStatsFromIndex:
     @staticmethod
     def _make_loader(store, bs=4):
-        source = FileSource(store, {"u": ["u"], "y": ["y"]})
+        source = WindowedSource(store, {"u": ["u"], "y": ["y"]})
         return grain.MapDataset.source(source).batch(bs, drop_remainder=False).to_iter_dataset()
 
     def test_matches_original(self, train_store):

@@ -1,6 +1,6 @@
 # %% [markdown]
 # # Transforms and Augmentations
-# Per-key data transforms (deterministic, all splits) and augmentations
+# Per-sample transforms (deterministic, all splits) and augmentations
 # (random, training-only). Uses the Wiener-Hammerstein dataset (u → y).
 
 # %%
@@ -15,7 +15,7 @@ DATASET = Path(__file__).resolve().parent.parent / "test_data/WienerHammerstein"
 
 # %% [markdown]
 # ## Custom transform
-# A transform is any `(np.ndarray) -> np.ndarray` callable applied per-sample
+# A transform is any function `(sample_dict) -> sample_dict` applied per-sample
 # before batching. Stats are computed on transformed data.
 
 
@@ -31,7 +31,7 @@ pipeline = create_grain_dls(
     dataset=DATASET,
     bs=16, win_sz=500, stp_sz=10,
     preload=True,
-    transforms={"u": cumsum_transform},
+    transform=lambda item: {**item, "u": cumsum_transform(item["u"])},
 )
 
 print(f"u stats (cumsum): mean={pipeline.stats['u'].mean}, std={pipeline.stats['u'].std}")
@@ -41,13 +41,15 @@ print(f"u stats (cumsum): mean={pipeline.stats['u'].mean}, std={pipeline.stats['
 # Shape-changing transform: `(seq_len, n_ch)` → `(n_frames, n_freq * n_ch)`.
 
 # %%
+_stft = stft_transform(n_fft=64, hop_length=32)
+
 pipeline_stft = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ["y"]},
     dataset=DATASET,
     bs=16, win_sz=500, stp_sz=10,
     preload=True,
-    transforms={"u": stft_transform(n_fft=64, hop_length=32)},
+    transform=lambda item: {**item, "u": _stft(item["u"])},
 )
 
 batch = next(iter(pipeline_stft.train))
@@ -61,17 +63,19 @@ print(f"u shape after STFT: {batch['u'].shape}")  # (16, n_frames, 33)
 # %%
 from tsjax import bias_injection, chain_augmentations, noise_injection, varying_noise  # noqa: E402
 
+_aug_u = chain_augmentations(
+    noise_injection(0.01),
+    bias_injection(0.005),
+    varying_noise(0.02),
+)
+
 pipeline_aug = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ["y"]},
     dataset=DATASET,
     bs=16, win_sz=500, stp_sz=10,
     preload=True,
-    augmentations={"u": chain_augmentations(
-        noise_injection(0.01),
-        bias_injection(0.005),
-        varying_noise(0.02),
-    )},
+    augmentation=lambda item, rng: {**item, "u": _aug_u(item["u"], rng)},
 )
 
 # Stats are identical — augmentations don't affect them

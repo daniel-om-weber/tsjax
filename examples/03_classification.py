@@ -1,23 +1,56 @@
 # %% [markdown]
 # # Classification: Sequence → Class Label
-# Demonstrates `ScalarAttr` targets and `ClassifierLearner` on synthetic
-# damped sinusoids with 3 damping regimes.
+# Demonstrates `scalar_attrs` for per-file targets and `ClassifierLearner`
+# on synthetic damped sinusoids with 3 damping regimes.
 
 # %%
 from pathlib import Path
 
-from tsjax import ClassifierLearner, ScalarAttr, create_grain_dls
+from tsjax import (
+    ClassifierLearner,
+    HDF5Store,
+    WindowedSource,
+    GrainPipeline,
+    scalar_attrs,
+)
 
 # %%
 DATASET = Path(__file__).resolve().parent.parent / "test_data/DampedSinusoids"
 
+# %% [markdown]
+# ## Build pipeline and train
+# Sequential input "u" with per-file scalar target "class".
+
 # %%
-pipeline = create_grain_dls(
-    inputs={"u": ["u"]},
-    targets={"y": ScalarAttr(["class"])},
-    dataset=DATASET,
-    win_sz=500, stp_sz=250, bs=8,
-    preload=True,
+train_files = sorted(str(p) for p in (DATASET / "train").rglob("*.hdf5"))
+valid_files = sorted(str(p) for p in (DATASET / "valid").rglob("*.hdf5"))
+test_files = sorted(str(p) for p in (DATASET / "test").rglob("*.hdf5"))
+
+signals = ["u"]
+
+store_train = HDF5Store(train_files, signals, preload=True)
+store_valid = HDF5Store(valid_files, signals, preload=True)
+store_test = HDF5Store(test_files, signals, preload=True)
+
+train_src = WindowedSource(
+    store_train,
+    {"u": ["u"], "y": scalar_attrs(train_files, ["class"])},
+    win_sz=500, stp_sz=250,
+)
+valid_src = WindowedSource(
+    store_valid,
+    {"u": ["u"], "y": scalar_attrs(valid_files, ["class"])},
+    win_sz=500, stp_sz=500,
+)
+test_src = WindowedSource(
+    store_test,
+    {"u": ["u"], "y": scalar_attrs(test_files, ["class"])},
+)
+
+pipeline = GrainPipeline.from_sources(
+    train_src, valid_src, test_src,
+    input_keys=("u",), target_keys=("y",),
+    bs=8, seed=42,
 )
 
 # %%

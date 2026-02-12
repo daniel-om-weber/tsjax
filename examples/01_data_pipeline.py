@@ -1,13 +1,12 @@
 # %% [markdown]
 # # Data Pipeline
 # How tsjax loads data: from the high-level `create_grain_dls` factory
-# down to explicit `HDF5Store` → `DataSource` → `GrainPipeline` construction.
+# down to explicit `HDF5Store` → `WindowedSource` → `GrainPipeline` construction.
 
 # %%
 from pathlib import Path
 
 from tsjax import (
-    FileSource,
     GrainPipeline,
     HDF5Store,
     RNNLearner,
@@ -68,7 +67,7 @@ store_test = HDF5Store(test_files, ["u", "y"], preload=True)
 
 train_src = WindowedSource(store_train, {"u": ["u"], "y": ["y"]}, win_sz=500, stp_sz=10)
 valid_src = WindowedSource(store_valid, {"u": ["u"], "y": ["y"]}, win_sz=500, stp_sz=10)
-test_src = FileSource(store_test, {"u": ["u"], "y": ["y"]})
+test_src = WindowedSource(store_test, {"u": ["u"], "y": ["y"]})  # full files
 
 pipeline_explicit = GrainPipeline.from_sources(
     train_src, valid_src, test_src,

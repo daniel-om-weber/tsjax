@@ -1,23 +1,21 @@
 """Integration tests for the data pipeline: stats, HDF5 reading, windowing, batching."""
 
-from functools import partial
-
 import h5py
 import numpy as np
 import pytest
 
 
 def _make_source(dataset_path, signals):
-    """Build a minimal FileSource for stats tests."""
-    from tsjax import FileSource, HDF5Store
+    """Build a minimal WindowedSource (full-file mode) for stats tests."""
+    from tsjax import HDF5Store, WindowedSource
 
     train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
     store = HDF5Store(train_files, signals)
-    return FileSource(store, {s: [s] for s in signals})
+    return WindowedSource(store, {s: [s] for s in signals})
 
 
 def _make_loader(source, bs=4):
-    """Wrap a DataSource in a sequential IterDataset for stats tests."""
+    """Wrap a source in a sequential IterDataset for stats tests."""
     import grain
 
     return grain.MapDataset.source(source).batch(bs, drop_remainder=False).to_iter_dataset()
@@ -148,8 +146,24 @@ def test_window_count_matches_formula(dataset_path):
     assert len(source) == expected_total
 
 
+def test_full_file_source_length(dataset_path):
+    """WindowedSource with win_sz=None should have one sample per file."""
+    from tsjax import HDF5Store, WindowedSource
+
+    train_files = sorted(str(p) for p in (dataset_path / "train").rglob("*.hdf5"))
+    store = HDF5Store(train_files, ["u", "y"])
+    source = WindowedSource(store, {"u": ["u"], "y": ["y"]})
+
+    assert len(source) == len(train_files)
+
+    # Each sample should have the full sequence length
+    sample = source[0]
+    seq_len = store.get_seq_len(train_files[0], "u")
+    assert sample["u"].shape == (seq_len, 1)
+
+
 # ---------------------------------------------------------------------------
-# Synthetic HDF5 fixtures for new reader types
+# Synthetic HDF5 fixtures for scalar_attrs tests
 # ---------------------------------------------------------------------------
 
 
@@ -210,51 +224,19 @@ class TestScalarAttrs:
 
 
 # ---------------------------------------------------------------------------
-# signal_feature tests
-# ---------------------------------------------------------------------------
-
-
-class TestSignalFeature:
-    def test_applies_mean_reduction(self, scalar_hdf5_files):
-        from tsjax import HDF5Store
-        from tsjax.data.sources import signal_feature
-
-        store = HDF5Store(scalar_hdf5_files, ["u"], preload=True)
-        fn = partial(np.mean, axis=0)
-        reader = signal_feature(store, ["u"], fn)
-        result = reader(scalar_hdf5_files[0], 10, 30)
-        assert result.shape == (1,)
-
-        # Verify manually
-        expected = np.mean(store.read_signals(scalar_hdf5_files[0], ["u"], 10, 30), axis=0)
-        np.testing.assert_allclose(result, expected.astype(np.float32), atol=1e-6)
-
-    def test_multi_signal_reduction(self, scalar_hdf5_files):
-        from tsjax import HDF5Store
-        from tsjax.data.sources import signal_feature
-
-        store = HDF5Store(scalar_hdf5_files, ["u", "y"], preload=True)
-        fn = partial(np.mean, axis=0)
-        reader = signal_feature(store, ["u", "y"], fn)
-        result = reader(scalar_hdf5_files[0], 0, 50)
-        assert result.shape == (2,)
-        assert result.dtype == np.float32
-
-
-# ---------------------------------------------------------------------------
-# compute_scalar_stats tests
+# compute_stats with scalar attrs
 # ---------------------------------------------------------------------------
 
 
 class TestComputeScalarStats:
     @staticmethod
     def _make_scalar_loader(files, attrs):
-        from tsjax import HDF5Store
-        from tsjax.data.sources import FileSource, scalar_attrs
+        from tsjax import HDF5Store, WindowedSource
+        from tsjax.data.sources import scalar_attrs
 
         reader = scalar_attrs(files, attrs)
-        store = HDF5Store(files, [])
-        source = FileSource(store, {"x": reader})
+        store = HDF5Store(files, ["u"])
+        source = WindowedSource(store, {"u": ["u"], "x": reader})
         return _make_loader(source, bs=len(files))
 
     def test_shape_and_dtype(self, scalar_hdf5_files):
@@ -287,18 +269,9 @@ class TestComputeScalarStats:
         assert ns.mean.shape == (2,)
         assert ns.std.shape == (2,)
 
-    def test_empty_attrs(self, scalar_hdf5_files):
-        from tsjax.data.stats import compute_stats
-
-        dl = self._make_scalar_loader(scalar_hdf5_files, [])
-        result = compute_stats(dl, ["x"], n_batches=10)
-        ns = result["x"]
-        assert ns.mean.shape == (0,)
-        assert ns.std.shape == (0,)
-
 
 # ---------------------------------------------------------------------------
-# Manual pipeline with non-signal readers
+# Manual pipeline with scalar target
 # ---------------------------------------------------------------------------
 
 
@@ -306,7 +279,7 @@ class TestManualPipeline:
     def test_pipeline_with_scalar_target(self, tmp_path):
         """Manual pipeline with scalar_attrs target should produce scalar batches."""
         from tsjax import GrainPipeline, HDF5Store, WindowedSource
-        from tsjax.data.sources import FileSource, scalar_attrs
+        from tsjax.data.sources import scalar_attrs
 
         rng = np.random.default_rng(123)
         split_files = {}
@@ -328,7 +301,7 @@ class TestManualPipeline:
             specs = {"u": ["u"], "y": scalar_attrs(files, ["class_label"])}
             if windowed:
                 return WindowedSource(store, specs, win_sz=20, stp_sz=20)
-            return FileSource(store, specs)
+            return WindowedSource(store, specs)
 
         pl = GrainPipeline.from_sources(
             make_source("train"),
@@ -345,48 +318,6 @@ class TestManualPipeline:
         assert batch["u"].shape == (2, 20, 1)  # windowed
         assert batch["y"].shape == (2, 1)  # scalar
 
-    def test_pipeline_with_feature_target(self, tmp_path):
-        """Manual pipeline with signal_feature target should produce reduced batches."""
-        from tsjax import GrainPipeline, HDF5Store, WindowedSource
-        from tsjax.data.sources import FileSource, signal_feature
-
-        rng = np.random.default_rng(456)
-        split_files = {}
-        for split in ("train", "valid", "test"):
-            d = tmp_path / "split" / split
-            d.mkdir(parents=True)
-            files = []
-            for i in range(2):
-                path = str(d / f"file_{i}.hdf5")
-                with h5py.File(path, "w") as f:
-                    f.create_dataset("u", data=rng.standard_normal(100).astype(np.float32))
-                    f.create_dataset("y", data=rng.standard_normal(100).astype(np.float32))
-                files.append(path)
-            split_files[split] = files
-
-        fn = partial(np.mean, axis=0)
-
-        def make_source(split, windowed=True):
-            files = split_files[split]
-            store = HDF5Store(files, ["u", "y"])
-            specs = {"u": ["u"], "y": signal_feature(store, ["y"], fn)}
-            if windowed:
-                return WindowedSource(store, specs, win_sz=20, stp_sz=20)
-            return FileSource(store, specs)
-
-        pl = GrainPipeline.from_sources(
-            make_source("train"),
-            make_source("valid"),
-            make_source("test", windowed=False),
-            input_keys=("u",),
-            target_keys=("y",),
-            bs=2,
-            seed=42,
-        )
-        batch = next(iter(pl.train))
-        assert batch["u"].shape == (2, 20, 1)  # windowed
-        assert batch["y"].shape == (2, 1)  # feature-reduced
-
 
 # ---------------------------------------------------------------------------
 # Numerical stability regression test
@@ -399,7 +330,7 @@ def test_stats_numerically_stable_large_offset(tmp_path):
     The naive formula std = sqrt(E[x^2] - E[x]^2) produces catastrophic
     cancellation here (negative variance -> NaN).  numpy handles this correctly.
     """
-    from tsjax import FileSource, HDF5Store, compute_stats
+    from tsjax import HDF5Store, WindowedSource, compute_stats
 
     # Data centered at 1e6 with std=0.01 -- triggers cancellation in naive formula
     rng = np.random.default_rng(42)
@@ -413,7 +344,7 @@ def test_stats_numerically_stable_large_offset(tmp_path):
         f.create_dataset("y", data=data)
 
     store = HDF5Store([str(path)], ["y"])
-    source = FileSource(store, {"y": ["y"]})
+    source = WindowedSource(store, {"y": ["y"]})
     dl = _make_loader(source, bs=1000)
     result = compute_stats(dl, ["y"], n_batches=100)
     ns = result["y"]

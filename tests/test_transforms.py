@@ -1,4 +1,4 @@
-"""Tests for the per-sample transform pipeline (Phase 3)."""
+"""Tests for the per-sample transform pipeline."""
 
 from __future__ import annotations
 
@@ -19,41 +19,6 @@ def transform_dataset(tmp_path):
                 f.create_dataset("u", data=rng.standard_normal(100).astype(np.float32))
                 f.create_dataset("y", data=rng.standard_normal(100).astype(np.float32))
     return tmp_path
-
-
-# ---------------------------------------------------------------------------
-# _apply_transforms unit tests
-# ---------------------------------------------------------------------------
-
-
-class TestApplyTransforms:
-    def test_identity_preserves_data(self):
-        from tsjax.data.item_transforms import _apply_transforms
-
-        sample = {"u": np.array([1.0, 2.0, 3.0]), "y": np.array([4.0, 5.0, 6.0])}
-        fn = _apply_transforms({"u": lambda x: x})
-        result = fn(sample)
-        np.testing.assert_array_equal(result["u"], sample["u"])
-        np.testing.assert_array_equal(result["y"], sample["y"])
-
-    def test_transforms_only_specified_keys(self):
-        from tsjax.data.item_transforms import _apply_transforms
-
-        sample = {"u": np.array([1.0, 2.0]), "y": np.array([3.0, 4.0])}
-        fn = _apply_transforms({"u": lambda x: x * 2})
-        result = fn(sample)
-        np.testing.assert_array_equal(result["u"], np.array([2.0, 4.0]))
-        np.testing.assert_array_equal(result["y"], np.array([3.0, 4.0]))
-
-    def test_multiple_keys_transformed(self):
-        from tsjax.data.item_transforms import _apply_transforms
-
-        sample = {"a": np.array([1.0]), "b": np.array([2.0]), "c": np.array([3.0])}
-        fn = _apply_transforms({"a": lambda x: x + 10, "b": lambda x: x * 3})
-        result = fn(sample)
-        np.testing.assert_array_equal(result["a"], np.array([11.0]))
-        np.testing.assert_array_equal(result["b"], np.array([6.0]))
-        np.testing.assert_array_equal(result["c"], np.array([3.0]))
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +48,7 @@ class TestPipelineWithTransforms:
             stp_sz=20,
             bs=2,
             seed=0,
-            transforms={"u": lambda x: x},
+            transform=lambda item: item,
         )
 
         batch_no = next(iter(pl_no_xform.train))
@@ -112,7 +77,7 @@ class TestPipelineWithTransforms:
             stp_sz=20,
             bs=2,
             seed=0,
-            transforms={"u": lambda x: x * 2},
+            transform=lambda item: {**item, "u": item["u"] * 2},
         )
 
         batch_base = next(iter(pl_base.train))
@@ -139,7 +104,7 @@ class TestPipelineWithTransforms:
             win_sz=20,
             stp_sz=20,
             bs=2,
-            transforms={"u": lambda x: x * 2},
+            transform=lambda item: {**item, "u": item["u"] * 2},
         )
 
         np.testing.assert_allclose(
@@ -163,26 +128,12 @@ class TestPipelineWithTransforms:
             win_sz=20,
             stp_sz=20,
             bs=2,
-            transforms={"u": partial(np.mean, axis=0)},
+            transform=lambda item: {**item, "u": partial(np.mean, axis=0)(item["u"])},
         )
 
         batch = next(iter(pl.train))
         assert batch["u"].shape == (2, 1)  # reduced to scalar per channel
         assert batch["y"].shape == (2, 20, 1)  # unchanged
-
-    def test_invalid_transform_key_raises(self, transform_dataset):
-        from tsjax.data.pipeline import create_grain_dls
-
-        with pytest.raises(ValueError, match="Transform keys"):
-            create_grain_dls(
-                inputs={"u": ["u"]},
-                targets={"y": ["y"]},
-                dataset=transform_dataset,
-                win_sz=20,
-                stp_sz=20,
-                bs=2,
-                transforms={"nonexistent": lambda x: x},
-            )
 
     def test_transforms_applied_to_all_splits(self, transform_dataset):
         """Transforms should apply to train, valid, and test splits."""
@@ -195,7 +146,7 @@ class TestPipelineWithTransforms:
             win_sz=20,
             stp_sz=20,
             bs=2,
-            transforms={"u": lambda x: x * 3},
+            transform=lambda item: {**item, "u": item["u"] * 3},
         )
         pl_base = create_grain_dls(
             inputs={"u": ["u"]},
@@ -243,7 +194,7 @@ class TestPipelineStatsWithTransform:
             win_sz=20,
             stp_sz=20,
             bs=2,
-            transforms={"u": lambda x: x * 3},
+            transform=lambda item: {**item, "u": item["u"] * 3},
         )
 
         # Scaled mean should be ~3x raw mean, scaled std should be ~3x raw std
@@ -260,7 +211,7 @@ class TestPipelineStatsWithTransform:
             win_sz=20,
             stp_sz=20,
             bs=2,
-            transforms={"u": lambda x: x * 100},
+            transform=lambda item: {**item, "u": item["u"] * 100},
         )
 
         assert pl.stats["u"].mean.dtype == np.float32
@@ -300,36 +251,6 @@ class TestSeqSlice:
         x = np.arange(10).reshape(10, 1).astype(np.float32)
         result = seq_slice()(x)
         np.testing.assert_array_equal(result, x)
-
-
-# ---------------------------------------------------------------------------
-# _apply_augmentations unit tests
-# ---------------------------------------------------------------------------
-
-
-class TestApplyAugmentations:
-    def test_augments_specified_keys(self):
-        from tsjax.data.item_transforms import _apply_augmentations
-
-        sample = {"u": np.ones((5, 1), dtype=np.float32), "y": np.ones((5, 1), dtype=np.float32)}
-        fn = _apply_augmentations({"u": lambda x, rng: x + 1.0})
-        rng = np.random.default_rng(42)
-        result = fn(sample, rng)
-        np.testing.assert_array_equal(result["u"], np.full((5, 1), 2.0))
-        np.testing.assert_array_equal(result["y"], np.ones((5, 1)))
-
-    def test_passes_rng_to_augmentation(self):
-        from tsjax.data.item_transforms import _apply_augmentations
-
-        sample = {"u": np.zeros((5, 1), dtype=np.float32)}
-
-        def _noisy(x, rng):
-            return x + rng.normal(0, 1, x.shape).astype(x.dtype)
-
-        fn = _apply_augmentations({"u": _noisy})
-        rng = np.random.default_rng(42)
-        result = fn(sample, rng)
-        assert not np.allclose(result["u"], 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +404,7 @@ class TestPipelineWithAugmentations:
             stp_sz=20,
             bs=2,
             seed=0,
-            augmentations={"u": lambda x, rng: x + 100.0},
+            augmentation=lambda item, rng: {**item, "u": item["u"] + 100.0},
         )
         pl_base = create_grain_dls(
             inputs={"u": ["u"]},
@@ -508,7 +429,7 @@ class TestPipelineWithAugmentations:
             win_sz=20,
             stp_sz=20,
             bs=2,
-            augmentations={"u": lambda x, rng: x + 100.0},
+            augmentation=lambda item, rng: {**item, "u": item["u"] + 100.0},
         )
         pl_base = create_grain_dls(
             inputs={"u": ["u"]},
@@ -533,7 +454,7 @@ class TestPipelineWithAugmentations:
             stp_sz=20,
             bs=2,
             seed=0,
-            augmentations={"u": lambda x, rng: x + 100.0},
+            augmentation=lambda item, rng: {**item, "u": item["u"] + 100.0},
         )
         pl_base = create_grain_dls(
             inputs={"u": ["u"]},
@@ -544,24 +465,8 @@ class TestPipelineWithAugmentations:
             bs=2,
             seed=0,
         )
-        diff = np.abs(
-            next(iter(pl_aug.train))["u"] - next(iter(pl_base.train))["u"]
-        )
+        diff = np.abs(next(iter(pl_aug.train))["u"] - next(iter(pl_base.train))["u"])
         assert np.all(diff > 50)
-
-    def test_invalid_augmentation_key_raises(self, transform_dataset):
-        from tsjax.data.pipeline import create_grain_dls
-
-        with pytest.raises(ValueError, match="Augmentation keys"):
-            create_grain_dls(
-                inputs={"u": ["u"]},
-                targets={"y": ["y"]},
-                dataset=transform_dataset,
-                win_sz=20,
-                stp_sz=20,
-                bs=2,
-                augmentations={"nonexistent": lambda x, rng: x},
-            )
 
     def test_transforms_and_augmentations_compose(self, transform_dataset):
         """Transforms and augmentations can be used together."""
@@ -575,8 +480,8 @@ class TestPipelineWithAugmentations:
             stp_sz=20,
             bs=2,
             seed=0,
-            transforms={"u": lambda x: x * 2},
-            augmentations={"u": lambda x, rng: x + 100.0},
+            transform=lambda item: {**item, "u": item["u"] * 2},
+            augmentation=lambda item, rng: {**item, "u": item["u"] + 100.0},
         )
         pl_xform_only = create_grain_dls(
             inputs={"u": ["u"]},
@@ -586,7 +491,7 @@ class TestPipelineWithAugmentations:
             stp_sz=20,
             bs=2,
             seed=0,
-            transforms={"u": lambda x: x * 2},
+            transform=lambda item: {**item, "u": item["u"] * 2},
         )
         # Stats should match (augmentations don't affect stats)
         np.testing.assert_array_equal(pl.stats["u"].mean, pl_xform_only.stats["u"].mean)

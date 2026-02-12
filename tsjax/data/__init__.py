@@ -5,8 +5,6 @@ from .benchmark import create_grain_dls_from_spec as create_grain_dls_from_spec
 from .hdf5_store import HDF5Store as HDF5Store
 from .hdf5_store import SignalInfo as SignalInfo
 from .hdf5_store import read_hdf5_attr as read_hdf5_attr
-from .item_transforms import Augmentation as Augmentation
-from .item_transforms import Transform as Transform
 from .item_transforms import bias_injection as bias_injection
 from .item_transforms import chain_augmentations as chain_augmentations
 from .item_transforms import grouped_noise as grouped_noise
@@ -20,14 +18,8 @@ from .pipeline import create_simulation_dls as create_simulation_dls
 from .resample import ResampledStore as ResampledStore
 from .resample import resample_fft as resample_fft
 from .resample import resample_interp as resample_interp
-from .sources import DataSource as DataSource
-from .sources import FileSource as FileSource
-from .sources import ReaderFn as ReaderFn
-from .sources import ScalarAttrs as ScalarAttrs
-from .sources import SignalFeature as SignalFeature
 from .sources import WindowedSource as WindowedSource
 from .sources import scalar_attrs as scalar_attrs
-from .sources import signal_feature as signal_feature
 from .stats import EMPTY_STATS as EMPTY_STATS
 from .stats import IDENTITY_STATS as IDENTITY_STATS
 from .stats import NormStats as NormStats

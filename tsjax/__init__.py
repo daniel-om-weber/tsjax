@@ -3,16 +3,10 @@
 __version__ = "0.1.0"
 
 from .data import IDENTITY_STATS as IDENTITY_STATS
-from .data import Augmentation as Augmentation
-from .data import DataSource as DataSource
-from .data import FileSource as FileSource
 from .data import GrainPipeline as GrainPipeline
 from .data import HDF5Store as HDF5Store
 from .data import NormStats as NormStats
-from .data import ReaderFn as ReaderFn
 from .data import ResampledStore as ResampledStore
-from .data import ScalarAttrs as ScalarAttrs
-from .data import SignalFeature as SignalFeature
 from .data import SignalInfo as SignalInfo
 from .data import SignalStore as SignalStore
 from .data import WindowedSource as WindowedSource
@@ -28,7 +22,6 @@ from .data import resample_fft as resample_fft
 from .data import resample_interp as resample_interp
 from .data import scalar_attrs as scalar_attrs
 from .data import seq_slice as seq_slice
-from .data import signal_feature as signal_feature
 from .data import stft_transform as stft_transform
 from .data import varying_noise as varying_noise
 from .losses import cross_entropy_loss as cross_entropy_loss

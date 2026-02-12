@@ -95,7 +95,7 @@ def classification_dataset(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def regression_dataset(tmp_path_factory):
-    """Dataset with scalar HDF5 attributes for tabular regression."""
+    """Dataset with signal data and scalar HDF5 attributes for regression."""
     import h5py
     import numpy as np
 
@@ -106,6 +106,7 @@ def regression_dataset(tmp_path_factory):
         d.mkdir()
         for i in range(6):
             with h5py.File(str(d / f"f{i}.hdf5"), "w") as f:
+                f.create_dataset("sensor", data=rng.standard_normal(100).astype(np.float32))
                 f.attrs["mass"] = float(rng.standard_normal())
                 f.attrs["stiffness"] = float(rng.standard_normal())
                 f.attrs["freq"] = float(rng.standard_normal())
@@ -123,7 +124,7 @@ def _make_split_files(dataset_path):
 def _make_classifier_pipeline(classification_dataset):
     """Build a classifier pipeline with scalar target via manual construction."""
     from tsjax import GrainPipeline, HDF5Store, WindowedSource
-    from tsjax.data.sources import FileSource, scalar_attrs
+    from tsjax.data.sources import scalar_attrs
 
     sf = _make_split_files(classification_dataset)
 
@@ -133,7 +134,7 @@ def _make_classifier_pipeline(classification_dataset):
         specs = {"u": ["sensor"], "y": scalar_attrs(files, ["fault_class"])}
         if windowed:
             return WindowedSource(store, specs, win_sz=20, stp_sz=20)
-        return FileSource(store, specs)
+        return WindowedSource(store, specs)
 
     return GrainPipeline.from_sources(
         make_source("train"),
@@ -147,19 +148,20 @@ def _make_classifier_pipeline(classification_dataset):
 
 
 def _make_regression_pipeline(regression_dataset):
-    """Build a regression pipeline with pure-scalar inputs/targets."""
-    from tsjax import GrainPipeline, HDF5Store
-    from tsjax.data.sources import FileSource, scalar_attrs
+    """Build a regression pipeline with scalar inputs/targets alongside signals."""
+    from tsjax import GrainPipeline, HDF5Store, WindowedSource
+    from tsjax.data.sources import scalar_attrs
 
     sf = _make_split_files(regression_dataset)
 
     def make_source(files):
-        store = HDF5Store(files, [])
+        store = HDF5Store(files, ["sensor"])
         specs = {
             "u": scalar_attrs(files, ["mass", "stiffness"]),
             "y": scalar_attrs(files, ["freq"]),
+            "_seq": ["sensor"],  # need at least one signal for WindowedSource
         }
-        return FileSource(store, specs)
+        return WindowedSource(store, specs)
 
     return GrainPipeline.from_sources(
         make_source(sf["train"]),
