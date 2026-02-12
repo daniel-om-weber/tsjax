@@ -353,6 +353,44 @@ class TestQuatNp:
             q = rand_quat(rng)
             npt.assert_allclose(np.linalg.norm(q), 1.0, atol=1e-6)
 
+    def test_inclination_angle_zero_for_identical(self):
+        from tsjax.quaternion._np import inclination_angle as np_incl
+
+        q = np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32)
+        q /= np.linalg.norm(q)
+        result = np_incl(q, q)
+        npt.assert_allclose(result, 0.0, atol=1e-5)
+
+    def test_inclination_angle_matches_jax(self):
+        from tsjax.quaternion._np import inclination_angle as np_incl
+
+        q1 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        q2 = np.array(ROT_X90, dtype=np.float32)
+        np_result = np_incl(q1, q2)
+        jax_result = float(inclination_angle(jnp.array(q1), jnp.array(q2)))
+        npt.assert_allclose(np_result, jax_result, atol=1e-5)
+
+    def test_inclination_angle_abs_identity_is_zero(self):
+        from tsjax.quaternion._np import inclination_angle_abs
+
+        q = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        npt.assert_allclose(inclination_angle_abs(q), 0.0, atol=1e-6)
+
+    def test_inclination_angle_abs_rotx90(self):
+        from tsjax.quaternion._np import inclination_angle_abs
+
+        q = np.array(ROT_X90, dtype=np.float32)
+        result = inclination_angle_abs(q)
+        npt.assert_allclose(result, np.pi / 2, atol=1e-3)
+
+    def test_inclination_angle_batch(self):
+        from tsjax.quaternion._np import inclination_angle as np_incl
+
+        q1 = np.tile([1.0, 0.0, 0.0, 0.0], (3, 10, 1)).astype(np.float32)
+        q2 = np.tile(np.array(ROT_X90), (3, 10, 1)).astype(np.float32)
+        result = np_incl(q1, q2)
+        assert result.shape == (3, 10)
+
 
 # ---------------------------------------------------------------------------
 # SLERP interpolation

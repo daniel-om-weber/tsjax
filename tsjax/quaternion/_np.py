@@ -79,3 +79,38 @@ def rand_quat(rng: np.random.Generator) -> np.ndarray:
     q = rng.uniform(-1, 1, size=4).astype(np.float32)
     q /= np.linalg.norm(q)
     return q
+
+
+# ---------------------------------------------------------------------------
+# Angle extraction (radians)
+# ---------------------------------------------------------------------------
+
+
+def inclination_angle(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Inclination (tilt) angle between two quaternions.
+
+    ``2 * atan2(sqrt(x**2 + y**2), sqrt(w**2 + z**2))`` of the difference
+    quaternion.  Uses ``atan2`` instead of ``acos`` for numerical stability.
+
+    Returns ``(...)`` angle in radians.
+    """
+    q = relative(normalize(q1), normalize(q2))
+    return 2 * np.arctan2(
+        np.sqrt(q[..., 1] ** 2 + q[..., 2] ** 2),
+        np.sqrt(q[..., 0] ** 2 + q[..., 3] ** 2),
+    )
+
+
+def inclination_angle_abs(q: np.ndarray) -> np.ndarray:
+    """Absolute inclination (tilt) angle of quaternion from identity.
+
+    Same formula as :func:`inclination_angle` but applied directly to *q*
+    (since ``relative(q, identity) == q``).
+
+    Returns ``(...)`` angle in radians.
+    """
+    q = normalize(q)
+    return 2 * np.arctan2(
+        np.sqrt(q[..., 1] ** 2 + q[..., 2] ** 2),
+        np.sqrt(q[..., 0] ** 2 + q[..., 3] ** 2),
+    )

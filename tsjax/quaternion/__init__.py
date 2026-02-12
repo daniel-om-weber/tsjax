@@ -30,3 +30,4 @@ from .losses import rms_roll_deg as rms_roll_deg
 from .losses import smooth_inclination as smooth_inclination
 from .transforms import quat_interp as quat_interp
 from .transforms import quaternion_augmentation as quaternion_augmentation
+from .viz import plot_quaternion_results as plot_quaternion_results

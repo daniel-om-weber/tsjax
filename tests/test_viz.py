@@ -180,6 +180,53 @@ class TestPlotRegressionScatter:
 # ---------------------------------------------------------------------------
 
 
+class TestPlotQuaternionResults:
+    @staticmethod
+    def _unit_quats(shape):
+        rng = np.random.default_rng(42)
+        q = rng.standard_normal((*shape, 4)).astype(np.float32)
+        return q / np.linalg.norm(q, axis=-1, keepdims=True)
+
+    def test_basic_shape(self):
+        from tsjax.quaternion.viz import plot_quaternion_results
+
+        target = self._unit_quats((8, 50))
+        pred = self._unit_quats((8, 50))
+        fig, axes = plot_quaternion_results(target, pred, n=4)
+        assert axes.shape == (2, 4)  # incl row + error row
+        plt.close(fig)
+
+    def test_with_u(self):
+        from tsjax.quaternion.viz import plot_quaternion_results
+
+        target = self._unit_quats((8, 50))
+        pred = self._unit_quats((8, 50))
+        u = np.random.randn(8, 50, 6)
+        fig, axes = plot_quaternion_results(target, pred, n=3, u=u)
+        assert axes.shape == (3, 3)  # incl + error + input
+        plt.close(fig)
+
+    def test_kwargs_absorbed(self):
+        from tsjax.quaternion.viz import plot_quaternion_results
+
+        target = self._unit_quats((4, 20))
+        pred = target.copy()
+        fig, axes = plot_quaternion_results(
+            target, pred, n=2, batch={}, signal_names={}, pipeline=None
+        )
+        assert axes.shape == (2, 2)
+        plt.close(fig)
+
+    def test_n_clamped(self):
+        from tsjax.quaternion.viz import plot_quaternion_results
+
+        target = self._unit_quats((2, 20))
+        pred = target.copy()
+        fig, axes = plot_quaternion_results(target, pred, n=10)
+        assert axes.shape == (2, 2)
+        plt.close(fig)
+
+
 class TestLearnerCallbacks:
     def test_custom_plot_batch_fn(self, pipeline):
         from flax import nnx
