@@ -39,7 +39,9 @@ pipeline = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": Feature(["y"], fn=rms_feature)},
     dataset=DATASET,
-    win_sz=500, stp_sz=10, bs=16,
+    win_sz=500,
+    stp_sz=10,
+    bs=16,
     preload=True,
 )
 

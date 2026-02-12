@@ -29,7 +29,9 @@ pipeline = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ["y"]},
     dataset=DATASET,
-    bs=16, win_sz=500, stp_sz=10,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
     preload=True,
     transform=lambda item: {**item, "u": cumsum_transform(item["u"])},
 )
@@ -47,7 +49,9 @@ pipeline_stft = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ["y"]},
     dataset=DATASET,
-    bs=16, win_sz=500, stp_sz=10,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
     preload=True,
     transform=lambda item: {**item, "u": _stft(item["u"])},
 )
@@ -73,7 +77,9 @@ pipeline_aug = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ["y"]},
     dataset=DATASET,
-    bs=16, win_sz=500, stp_sz=10,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
     preload=True,
     augmentation=lambda item, rng: {**item, "u": _aug_u(item["u"], rng)},
 )

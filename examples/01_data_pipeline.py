@@ -27,7 +27,9 @@ pipeline = create_grain_dls(
     inputs={"u": ["u"]},
     targets={"y": ["y"]},
     dataset=DATASET,
-    bs=16, win_sz=500, stp_sz=10,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
     valid_stp_sz=500,  # non-overlapping validation windows
     preload=True,
 )
@@ -45,7 +47,9 @@ pipeline_multi = create_grain_dls(
     inputs={"u": ["u", "y"]},  # 2-channel input
     targets={"y": ["y"]},
     dataset=DATASET,
-    bs=16, win_sz=500, stp_sz=10,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
     preload=True,
 )
 
@@ -69,9 +73,13 @@ valid_src = WindowedSource(store_valid, {"u": ["u"], "y": ["y"]}, win_sz=500, st
 test_src = WindowedSource(store_test, {"u": ["u"], "y": ["y"]})  # full files
 
 pipeline_explicit = GrainPipeline.from_sources(
-    train_src, valid_src, test_src,
-    input_keys=("u",), target_keys=("y",),
-    bs=16, seed=42,
+    train_src,
+    valid_src,
+    test_src,
+    input_keys=("u",),
+    target_keys=("y",),
+    bs=16,
+    seed=42,
 )
 
 # %% [markdown]

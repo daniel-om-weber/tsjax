@@ -15,7 +15,10 @@ from tsjax import GRULearner, create_grain_dls_from_spec, rmse
 if __name__ == "__main__":
     pipeline = create_grain_dls_from_spec(
         idb.BenchmarkRobotForward_Simulation,
-        bs=32, stp_sz=1, preload=True, worker_count=2,
+        bs=32,
+        stp_sz=1,
+        preload=True,
+        worker_count=2,
     )
     pipeline.n_train_batches = 300  # limit to 300 batches per epoch
 

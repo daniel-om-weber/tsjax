@@ -34,12 +34,14 @@ store_test = HDF5Store(test_files, signals, preload=True)
 train_src = WindowedSource(
     store_train,
     {"u": ["u"], "y": scalar_attrs(train_files, ["class"])},
-    win_sz=500, stp_sz=250,
+    win_sz=500,
+    stp_sz=250,
 )
 valid_src = WindowedSource(
     store_valid,
     {"u": ["u"], "y": scalar_attrs(valid_files, ["class"])},
-    win_sz=500, stp_sz=500,
+    win_sz=500,
+    stp_sz=500,
 )
 test_src = WindowedSource(
     store_test,
@@ -47,9 +49,13 @@ test_src = WindowedSource(
 )
 
 pipeline = GrainPipeline.from_sources(
-    train_src, valid_src, test_src,
-    input_keys=("u",), target_keys=("y",),
-    bs=8, seed=42,
+    train_src,
+    valid_src,
+    test_src,
+    input_keys=("u",),
+    target_keys=("y",),
+    bs=8,
+    seed=42,
 )
 
 # %%

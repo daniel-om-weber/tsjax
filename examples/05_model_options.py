@@ -12,9 +12,12 @@ from tsjax import GRULearner, RNNLearner, create_simulation_dls, normalized_mse,
 DATASET = Path(__file__).resolve().parent.parent / "test_data/WienerHammerstein"
 
 pipeline = create_simulation_dls(
-    u=["u"], y=["y"],
+    u=["u"],
+    y=["y"],
     dataset=DATASET,
-    bs=16, win_sz=500, stp_sz=10,
+    bs=16,
+    win_sz=500,
+    stp_sz=10,
     preload=True,
 )
 
@@ -42,8 +45,7 @@ lrn_deep.fit_flat_cos(n_epoch=3, lr=1e-3)
 # `(pred, target, y_mean, y_std) -> scalar` callable.
 
 # %%
-lrn_mse = RNNLearner(pipeline, hidden_size=64, n_skip=40,
-                      loss_func=normalized_mse, metrics=[rmse])
+lrn_mse = RNNLearner(pipeline, hidden_size=64, n_skip=40, loss_func=normalized_mse, metrics=[rmse])
 lrn_mse.fit(n_epoch=3, lr=1e-3)
 
 # %% [markdown]
