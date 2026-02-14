@@ -19,6 +19,7 @@ def create_rnn(
     cell_type: type = nnx.GRUCell,
     hidden_size: int = 100,
     num_layers: int = 1,
+    unroll: int = 1,
     seed: int = 0,
 ) -> NormalizedModel:
     """Create RNN model with norm stats inferred from pipeline."""
@@ -33,6 +34,7 @@ def create_rnn(
         hidden_size=hidden_size,
         num_layers=num_layers,
         cell_type=cell_type,
+        unroll=unroll,
         rngs=nnx.Rngs(seed),
     )
     return NormalizedModel(
@@ -47,6 +49,7 @@ def RNNLearner(
     cell_type: type = nnx.OptimizedLSTMCell,
     hidden_size: int = 100,
     num_layers: int = 1,
+    unroll: int = 1,
     loss_func=normalized_mae,
     n_skip: int = 0,
     seed: int = 0,
@@ -54,7 +57,12 @@ def RNNLearner(
 ) -> Learner:
     """Create Learner with RNN model (mirrors TSFast's RNNLearner)."""
     model = create_rnn(
-        pipeline, cell_type=cell_type, hidden_size=hidden_size, num_layers=num_layers, seed=seed
+        pipeline,
+        cell_type=cell_type,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        unroll=unroll,
+        seed=seed,
     )
     return Learner(model, pipeline, loss_func=loss_func, n_skip=n_skip, metrics=metrics)
 
@@ -94,6 +102,7 @@ def ClassifierLearner(
     cell_type: type = nnx.GRUCell,
     hidden_size: int = 100,
     num_layers: int = 1,
+    unroll: int = 1,
     n_skip: int = 0,
     seed: int = 0,
     metrics: list = [],
@@ -108,6 +117,7 @@ def ClassifierLearner(
         hidden_size=hidden_size,
         num_layers=num_layers,
         cell_type=cell_type,
+        unroll=unroll,
         rngs=nnx.Rngs(seed),
     )
     encoder = nnx.Sequential(rnn, LastPool())

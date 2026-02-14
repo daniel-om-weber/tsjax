@@ -19,6 +19,7 @@ class RNN(nnx.Module):
         hidden_size: int = 100,
         num_layers: int = 1,
         cell_type: type = nnx.GRUCell,
+        unroll: int = 1,
         *,
         rngs: nnx.Rngs,
     ):
@@ -27,7 +28,7 @@ class RNN(nnx.Module):
         for i in range(num_layers):
             in_feat = input_size if i == 0 else hidden_size
             cell = cell_type(in_features=in_feat, hidden_features=hidden_size, rngs=rngs)
-            layers.append(nnx.RNN(cell))
+            layers.append(nnx.RNN(cell, unroll=unroll))
         self.rnn_layers = nnx.List(layers)
 
         # Output projection
