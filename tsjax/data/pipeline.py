@@ -88,7 +88,10 @@ class GrainPipeline:
             train_ds = train_ds.map(transform)
         if augmentation:
             train_ds = train_ds.random_map(augmentation)
-        train_iter = train_ds.batch(bs, drop_remainder=True).to_iter_dataset()
+        read_options = grain.ReadOptions(num_threads=2, prefetch_buffer_size=10)
+        train_iter = train_ds.batch(bs, drop_remainder=True).to_iter_dataset(
+            read_options=read_options,
+        )
         if worker_count > 0:
             train_iter = train_iter.mp_prefetch(
                 grain.MultiprocessingOptions(num_workers=worker_count)
