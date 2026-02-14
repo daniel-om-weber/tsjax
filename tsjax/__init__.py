@@ -34,8 +34,10 @@ from .losses import normalized_mse as normalized_mse
 from .losses import rmse as rmse
 from .models import MLP as MLP
 from .models import RNN as RNN
+from .models import S5 as S5
 from .models import Denormalize as Denormalize
 from .models import LastPool as LastPool
+from .models import MinGRU as MinGRU
 from .models import Normalize as Normalize
 from .models import NormalizedModel as NormalizedModel
 from .training import ClassifierLearner as ClassifierLearner

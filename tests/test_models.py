@@ -262,3 +262,129 @@ def test_mlp_single_hidden():
     x = jnp.ones((2, 4))
     out = model(x)
     assert out.shape == (2, 3)
+
+
+# ---------------------------------------------------------------------------
+# MinGRU tests
+# ---------------------------------------------------------------------------
+
+
+def test_mingru_output_shape():
+    """MinGRU forward pass should produce (batch, seq_len, output_size)."""
+    from tsjax import MinGRU
+
+    model = MinGRU(input_size=1, output_size=1, hidden_size=8, rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 10, 1))
+    out = model(x)
+    assert out.shape == (2, 10, 1)
+
+
+def test_mingru_multilayer():
+    """Multi-layer MinGRU should produce correct shape."""
+    from tsjax import MinGRU
+
+    model = MinGRU(input_size=2, output_size=3, hidden_size=8, num_layers=2, rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 10, 2))
+    out = model(x)
+    assert out.shape == (2, 10, 3)
+
+
+def test_mingru_output_is_finite():
+    """MinGRU output should be finite for reasonable input."""
+    from tsjax import MinGRU
+
+    model = MinGRU(input_size=1, output_size=1, hidden_size=8, rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 20, 1)) * 0.5
+    out = model(x)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_mingru_with_last_pool():
+    """MinGRU + LastPool should produce (batch, output_size)."""
+    from tsjax import LastPool, MinGRU
+
+    model = MinGRU(input_size=1, output_size=5, hidden_size=8, rngs=nnx.Rngs(0))
+    encoder = nnx.Sequential(model, LastPool())
+    x = jnp.ones((2, 10, 1))
+    out = encoder(x)
+    assert out.shape == (2, 5)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_mingru_with_norm_wrapper():
+    """NormalizedModel-wrapped MinGRU should work end-to-end."""
+    from tsjax import Denormalize, MinGRU, Normalize, NormalizedModel
+
+    model = NormalizedModel(
+        MinGRU(input_size=1, output_size=1, hidden_size=8, rngs=nnx.Rngs(0)),
+        norm_in=Normalize(1, mean=np.array([1.0]), std=np.array([2.0])),
+        norm_out=Denormalize(1, mean=np.array([3.0]), std=np.array([4.0])),
+    )
+    x = jnp.ones((2, 20, 1))
+    out = model(x)
+    assert out.shape == (2, 20, 1)
+    assert jnp.all(jnp.isfinite(out))
+
+
+# ---------------------------------------------------------------------------
+# S5 tests
+# ---------------------------------------------------------------------------
+
+
+def test_s5_output_shape():
+    """S5 forward pass should produce (batch, seq_len, output_size)."""
+    from tsjax import S5
+
+    model = S5(input_size=1, output_size=1, hidden_size=8, state_size=8, rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 10, 1))
+    out = model(x)
+    assert out.shape == (2, 10, 1)
+
+
+def test_s5_multilayer():
+    """Multi-layer S5 should produce correct shape."""
+    from tsjax import S5
+
+    model = S5(
+        input_size=2, output_size=3, hidden_size=8, state_size=8, num_layers=2, rngs=nnx.Rngs(0)
+    )
+    x = jnp.ones((2, 10, 2))
+    out = model(x)
+    assert out.shape == (2, 10, 3)
+
+
+def test_s5_output_is_finite():
+    """S5 output should be finite for reasonable input."""
+    from tsjax import S5
+
+    model = S5(input_size=1, output_size=1, hidden_size=8, state_size=8, rngs=nnx.Rngs(0))
+    x = jnp.ones((2, 20, 1)) * 0.5
+    out = model(x)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_s5_with_last_pool():
+    """S5 + LastPool should produce (batch, output_size)."""
+    from tsjax import S5, LastPool
+
+    model = S5(input_size=1, output_size=5, hidden_size=8, state_size=8, rngs=nnx.Rngs(0))
+    encoder = nnx.Sequential(model, LastPool())
+    x = jnp.ones((2, 10, 1))
+    out = encoder(x)
+    assert out.shape == (2, 5)
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_s5_with_norm_wrapper():
+    """NormalizedModel-wrapped S5 should work end-to-end."""
+    from tsjax import S5, Denormalize, Normalize, NormalizedModel
+
+    model = NormalizedModel(
+        S5(input_size=1, output_size=1, hidden_size=8, state_size=8, rngs=nnx.Rngs(0)),
+        norm_in=Normalize(1, mean=np.array([1.0]), std=np.array([2.0])),
+        norm_out=Denormalize(1, mean=np.array([3.0]), std=np.array([4.0])),
+    )
+    x = jnp.ones((2, 20, 1))
+    out = model(x)
+    assert out.shape == (2, 20, 1)
+    assert jnp.all(jnp.isfinite(out))
